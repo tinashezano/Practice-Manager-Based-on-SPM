@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DIRECTOR
+  ACCOUNTANT
+  BOOKKEEPER
+}
+
+model User {
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  name                String
+  role                Role      @default(BOOKKEEPER)
+  active              Boolean   @default(true)
+  image               String?
+  weeklyCapacityHours Int       @default(40)
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+// Every automation-relevant thing that happens is recorded here first, then
+// handled by background jobs. Also serves as the audit trail and the place we
+// de-duplicate retried webhooks (via idempotencyKey).
+model EventLog {
+  id             String    @id @default(cuid())
+  type           String
+  payload        Json
+  idempotencyKey String?   @unique
+  actorId        String?
+  processedAt    DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@index([type, createdAt])
+  @@index([processedAt])
+}

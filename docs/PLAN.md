@@ -1,4 +1,4 @@
-# Practice Manager — Build Plan
+# Outset PM — Build Plan
 
 An operations platform for accounting firms, modelled on Sole Practice Manager,
 built around one end-to-end workflow:
@@ -41,17 +41,18 @@ team works from task lists and dashboards and doesn't have to chase status by ha
 | Board / drag-drop | `@dnd-kit` | Kanban for deals, onboarding and tasks |
 | Calendar / timeline | FullCalendar (calendar), custom or `frappe-gantt` (timeline) | Calendar and Timeline task views |
 | Charts | Recharts | Dashboards (revenue trend, WIP ageing, utilisation) |
-| Database | **PostgreSQL** (Supabase or Neon) | Relational data, row-level multi-tenancy |
+| Database | **PostgreSQL on Railway** | Relational data; one firm, so single-tenant |
 | ORM | **Prisma** (or Drizzle) | Typed schema and migrations |
-| Auth | Auth.js or Supabase Auth, with Google/Microsoft SSO | Staff log in with their work accounts |
-| Background jobs | **Inngest** (or BullMQ + Redis) | Event-driven automations, retries, delays ("remind in 3 days") |
-| Email | Resend (or Postmark) + React Email templates | Booking links, welcome pack, info requests, notifications |
-| File storage | Supabase Storage / S3 | Client documents, signed PDFs, SOP attachments |
+| Auth | **Auth.js with Google sign-in**, limited to the firm's Workspace domain | Staff log in with their work Google accounts; only staff a Director has added can get in |
+| Background jobs | **pg-boss** (job queue stored in Postgres) in a Railway worker service | Event-driven automations, retries, delays ("remind in 3 days"), no extra service to pay for |
+| Email | **Gmail API** (sends from your Workspace mailbox) + React Email templates | Booking links, welcome pack, info requests; sent mail shows in Gmail |
+| File storage | S3-compatible bucket (Cloudflare R2 or Railway volume) | Client documents, signed PDFs, SOP attachments |
 | E-signature | **DocuSign eSignature REST API** (JWT grant) | Proposals and engagement letters |
 | Payments | **Paystack** (Transactions + Payment Pages, Subscriptions) | Upfront fees and recurring retainers |
-| Booking | Built-in booking links (Phase 2), or Cal.com embed as a quick start | "Send Discovery Call booking link" |
+| Booking | **Our own booking page on top of Google Calendar**: free/busy lookup and event creation with a Meet link | "Send Discovery Call booking link"; the booking lands in your calendar and fires our automation directly |
 | Rich text (SOPs) | TipTap | Resource Hub editor |
-| Hosting | Vercel (app) + Supabase/Neon (DB) | Low ops overhead |
+| Hosting | **Railway**: web service, worker service and Postgres | Your existing host |
+| Accounting | **QuickBooks Online API** (Phase 8) | Sync clients as customers, push invoices and payments |
 
 > Paystack and the CIPC task in your screenshot suggest a South African firm.
 > The plan assumes **ZAR**, VAT at 15%, SAST and SA-specific services (CIPC, SARS
@@ -135,6 +136,10 @@ Pipeline cards show value, probability, owner, next action and age, as in Sole's
 - Once-off or upfront fee: initialise a Paystack transaction and redirect to checkout.
 - Monthly retainer: create a Paystack **Plan + Subscription** (card authorisation reused).
 - The payment reference stores `proposalId` in metadata so the webhook can match it.
+- A proposal can mix both. Once-off items are charged at checkout. Retainer items start a subscription whose
+  first charge is taken at the same checkout.
+- **Onboarding waits for payment.** "Paid" means the once-off amount and (for retainers)
+  the first subscription charge succeeded.
 
 **Webhooks (source of truth):**
 - DocuSign Connect `envelope-completed` → proposal `signedAt`, store the signed PDF.
@@ -276,6 +281,7 @@ proposal tasks appear in the task views. They carry over to the client on conver
 - Developer (demo) account first, then go-live review. API access needs a plan that includes the eSignature API.
 - Auth: JWT Grant with an integration key and RSA key, impersonating a firm user (one-time consent).
 - Templates: one proposal or engagement-letter template with tabs (fields) matching our proposal data.
+- **No account yet.** Phase 3 builds the proposal flow behind an e-signature adapter. Until DocuSign is connected, a Director can mark a proposal "Signed" by uploading the signed PDF, and every later automation works the same way. Connecting DocuSign later is a settings change, not a rebuild. A free DocuSign developer account is enough for testing.
 - Embedded sending: `EnvelopeViews: createSender`. Embedded signing: `createRecipient` with a
   `clientUserId` (or Focused View via DocuSign JS for an in-page frame).
 - DocuSign Connect webhook (HMAC verified) on `envelope-sent`, `-delivered`, `-completed`, `-declined`, `-voided`.
@@ -286,20 +292,29 @@ proposal tasks appear in the task views. They carry over to the client on conver
 - Webhook: verify `x-paystack-signature` (HMAC SHA512 of the body with the secret key), then
   `GET /transaction/verify/:reference` before trusting it. Reply 200 quickly and process in a background job.
 
-**Booking**
-- Phase 2: built-in booking links (availability from Google/Microsoft calendar, slot
-  picker, auto-created meeting link). Quick option: embed Cal.com and use its
-  `BOOKING_CREATED` webhook.
+**Booking (Google Calendar)**
+- Each staff member connects their Google Calendar once (OAuth, calendar scope).
+- The public booking page `/book/<link>` shows open slots from Google free/busy,
+  within working hours and with buffers.
+- Booking a slot creates the event in the staff member's calendar with a Google Meet
+  link and invites the lead. In the same step it fires `booking.confirmed`, which moves the deal and
+  creates the Discovery Call task. No third-party booking tool or webhook is needed.
+- Reschedule and cancel links in the confirmation email update the event and the task.
 
-**Email and calendar:** Google Workspace / Microsoft 365 OAuth for calendar sync, Resend for transactional email.
+**Email and calendar:** Google Workspace. Sign-in, Calendar (booking and task due dates) and Gmail API sending.
 
-**Later:** Xero/QuickBooks (client sync, invoices), SARS deadline calendar, WhatsApp notifications, Slack/Teams.
+**QuickBooks Online (Phase 8)**
+- OAuth 2.0 connection from Settings → Integrations.
+- New client → QBO Customer. Paystack payment → QBO Invoice + Payment (or Sales Receipt).
+- Monthly retainers → matching QBO invoices each cycle.
+
+**Later:** SARS deadline calendar, WhatsApp notifications.
 
 ---
 
 ## 7. Security and compliance
 
-- Multi-tenant by `organization_id` on every row, with Postgres row-level security as a backstop.
+- Single firm (single-tenant). Every query is checked against the user's role on the server, not just hidden in the UI.
 - Roles: Owner, Manager, Staff, Read-only, and later Client (portal).
 - **POPIA:** consent capture on lead forms, data minimisation, retention policy, audit log,
   and encrypted storage for ID or tax documents.
@@ -311,31 +326,49 @@ proposal tasks appear in the task views. They carry over to the client on conver
 
 | Phase | Scope | Outcome |
 |---|---|---|
-| **0. Foundation** (1–2 wks) | Repo, Next.js + DB + auth, org/team/roles, app shell (sidebar like Sole), design system, event/job infrastructure, seed data | Staff can log in and see the shell |
+| **0. Foundation** ✅ | Next.js + Postgres + Google Workspace login, roles, Team & Roles screen, app shell, event log, Railway config | Staff can log in and see the shell |
 | **1. Clients and Task Management** (3–4 wks) | Clients, projects, tasks + subtasks, List/Board/Calendar/Timeline views, comments, attachments, task templates, My Tasks | The team can run daily work in the app (most value, earliest) |
 | **2. Leads, Pipeline and Booking** (2–3 wks) | CRM, deal Kanban, lead capture form, booking links, automations: lead → booking email → discovery task → proposal task | Front of funnel automated |
 | **3. Proposals, DocuSign and Paystack** (3–4 wks) | Service catalogue and packages, proposal builder, DocuSign embedded send and sign, Paystack checkout and subscriptions, webhooks, "Signed + Paid → Won" automation | Lead turns into a paying client with no manual steps |
-| **4. Onboarding** (2 wks) | Onboarding Kanban, templates, info-request upload portal, reminders, welcome pack, notifications | Onboarding runs to a checklist |
+| **4. Onboarding** (2 wks) | Onboarding Kanban, templates, secure per-request upload links (no client login), reminders, welcome pack, notifications | Onboarding runs to a checklist |
 | **5. Resource Hub** (1–2 wks) | SOP library, search, versioning, linking SOPs to task templates, staff onboarding programmes | Knowledge and new-hire training in one place |
 | **6. Workload and Time** (2–3 wks) | Capacity settings, time tracker, capacity heatmap, rebalancing | Visibility of who is overloaded |
 | **7. Dashboards** (2 wks) | My Dashboard, Practice Dashboard, Helicopter View | Management control centre |
-| **8. Later** | Client portal, Xero/QBO, recurring compliance calendar (SARS), AI assistant ("Ask"), mobile polish | — |
+| **8. QuickBooks Online and later** | QBO sync (customers, invoices, payments), recurring compliance calendar (SARS), AI assistant ("Ask"), mobile polish | Books and practice manager stay in step |
 
 Each phase includes tests (unit tests for automations, Playwright end-to-end tests
 for key flows) and a deploy to a staging URL.
 
 ---
 
-## 9. Decisions needed before building
+## 9. Decisions (confirmed)
 
-1. **Hosting and budget:** OK with Vercel + Supabase (managed, low cost to start)?
-2. **Booking:** build our own booking links, or start with Cal.com/Calendly and replace them later?
-3. **DocuSign plan:** do you already have a DocuSign account with API access? (A free developer account works for building.)
-4. **Payment model:** upfront once-off fees, monthly retainers (Paystack subscriptions), or both?
-   Must payment happen **before** onboarding starts, or can onboarding start on signature alone?
-5. **Client portal:** should clients log in to upload documents and see progress, or is
-   a secure magic link per request enough for v1?
-6. **Calendar and email:** Google Workspace or Microsoft 365?
-7. **Accounting software:** Xero, QuickBooks, Sage or none (for later integration)?
-8. **Team size and roles:** roughly how many staff, and which roles need to be restricted?
-9. **Branding:** firm name, logo and colours for the app and client-facing pages.
+| Topic | Decision |
+|---|---|
+| Hosting | **Railway** (web, worker, Postgres) |
+| Booking | **Google Calendar**, through our own booking page that uses Calendar free/busy and Meet links |
+| DocuSign | Account comes later. Build behind an adapter and use manual "upload signed PDF" until then |
+| Payments | **Both** once-off and monthly retainers (Paystack). **Onboarding starts only after payment** |
+| Client portal | **None.** Secure per-request upload links |
+| Workspace | **Google Workspace** (sign-in, Calendar, Gmail) |
+| Accounting | **QuickBooks Online** (Phase 8) |
+| Team | 5 staff. Roles: **Director, Accountant, Bookkeeper** (matrix below) |
+| Name | **Outset PM**. Logo and colours to follow. Brand colours are tokens in `src/app/globals.css` |
+
+### Role permissions (proposed — confirm or adjust)
+
+| Capability | Director | Accountant | Bookkeeper |
+|---|:-:|:-:|:-:|
+| Firm financials (revenue, margins, rates) | ✅ | — | — |
+| Team & roles, settings, integrations, service pricing | ✅ | — | — |
+| Leads, pipeline, bookings | ✅ | ✅ | — |
+| Proposals | ✅ | ✅ | — |
+| Create and edit clients, onboarding | ✅ | ✅ | view |
+| Edit or reassign anyone's tasks | ✅ | ✅ | — |
+| Work on own and assigned tasks | ✅ | ✅ | ✅ |
+| Write and publish SOPs | ✅ | ✅ | read |
+| Whole-team workload | ✅ | ✅ | own only |
+
+### Still open
+- Logo file and brand colours (the current indigo is a placeholder).
+- The permission matrix above.
