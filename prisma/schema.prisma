@@ -24,6 +24,14 @@ model User {
   lastLoginAt         DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+
+  ownedClients  Client[]       @relation("ClientOwner")
+  ownedProjects Project[]      @relation("ProjectOwner")
+  assignedTasks Task[]         @relation("TaskAssignee")
+  reviewTasks   Task[]         @relation("TaskReviewer")
+  createdTasks  Task[]         @relation("TaskCreator")
+  comments      TaskComment[]
+  notifications Notification[]
 }
 
 // Every automation-relevant thing that happens is recorded here first, then
@@ -41,4 +49,188 @@ model EventLog {
 
   @@index([type, createdAt])
   @@index([processedAt])
+}
+
+enum EntityType {
+  PRIVATE_COMPANY
+  SOLE_PROPRIETOR
+  INDIVIDUAL
+  TRUST
+  PARTNERSHIP
+  NPO
+  OTHER
+}
+
+enum ClientStatus {
+  ONBOARDING
+  ACTIVE
+  INACTIVE
+}
+
+model Client {
+  id                 String       @id @default(cuid())
+  name               String
+  entityType         EntityType   @default(PRIVATE_COMPANY)
+  status             ClientStatus @default(ACTIVE)
+  // The firm's own admin work lives under one internal "client" so every task
+  // still sits under a client.
+  isInternal         Boolean      @default(false)
+  registrationNumber String?
+  taxNumber          String?
+  vatNumber          String?
+  email              String?
+  phone              String?
+  address            String?
+  notes              String?
+  ownerId            String?
+  owner              User?        @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  contacts ClientContact[]
+  projects Project[]
+  tasks    Task[]
+
+  @@index([status])
+}
+
+model ClientContact {
+  id        String  @id @default(cuid())
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  email     String?
+  phone     String?
+  position  String?
+  isPrimary Boolean @default(false)
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+}
+
+model Project {
+  id          String           @id @default(cuid())
+  clientId    String
+  client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  status      ProjectStatus    @default(ACTIVE)
+  ownerId     String?
+  owner       User?            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  startDate   DateTime?        @db.Date
+  dueDate     DateTime?        @db.Date
+  templateId  String?
+  template    ProjectTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  tasks Task[]
+
+  @@index([clientId])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  WAITING_ON_CLIENT
+  IN_REVIEW
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id              String     @id @default(cuid())
+  title           String
+  description     String?
+  status          TaskStatus @default(TODO)
+  priority        Priority   @default(MEDIUM)
+  // Every task belongs to a client; project is optional; parentId makes it a subtask.
+  clientId        String
+  client          Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  projectId       String?
+  project         Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parentId        String?
+  parent          Task?      @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks        Task[]     @relation("Subtasks")
+  assigneeId      String?
+  assignee        User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reviewerId      String?
+  reviewer        User?      @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  createdById     String?
+  createdBy       User?      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  startDate       DateTime?  @db.Date
+  dueDate         DateTime?  @db.Date
+  estimateMinutes Int?
+  position        Float      @default(0)
+  completedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  comments TaskComment[]
+
+  @@index([clientId])
+  @@index([projectId])
+  @@index([parentId])
+  @@index([assigneeId, status])
+  @@index([dueDate])
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+// Reusable job templates, e.g. "Monthly Bookkeeping" → tasks + subtasks.
+model ProjectTemplate {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  description String?
+  createdAt   DateTime       @default(now())
+  tasks       TemplateTask[]
+  projects    Project[]
+}
+
+model TemplateTask {
+  id              String          @id @default(cuid())
+  templateId      String
+  template        ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parentId        String?
+  parent          TemplateTask?   @relation("TemplateSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks        TemplateTask[]  @relation("TemplateSubtasks")
+  title           String
+  description     String?
+  // Due date = project start + this many days.
+  dueOffsetDays   Int?
+  estimateMinutes Int?
+  priority        Priority        @default(MEDIUM)
+  position        Float           @default(0)
 }

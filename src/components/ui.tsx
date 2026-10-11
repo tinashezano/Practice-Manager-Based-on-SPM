@@ -57,8 +57,11 @@ export function Button({
   );
 }
 
-export const inputClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-soft";
+/** Input styling without a width, for inline controls that size themselves. */
+export const inputBase =
+  "rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-soft";
+
+export const inputClass = `w-full ${inputBase}`;
 
 export function Badge({
   tone = "neutral",

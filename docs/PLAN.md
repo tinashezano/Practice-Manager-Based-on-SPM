@@ -327,8 +327,8 @@ proposal tasks appear in the task views. They carry over to the client on conver
 | Phase | Scope | Outcome |
 |---|---|---|
 | **0. Foundation** ✅ | Next.js + Postgres + Google Workspace login, roles, Team & Roles screen, app shell, event log, Railway config | Staff can log in and see the shell |
-| **1. Clients and Task Management** (3–4 wks) | Clients, projects, tasks + subtasks, List/Board/Calendar/Timeline views, comments, attachments, task templates, My Tasks | The team can run daily work in the app (most value, earliest) |
-| **2. Leads, Pipeline and Booking** (2–3 wks) | CRM, deal Kanban, lead capture form, booking links, automations: lead → booking email → discovery task → proposal task | Front of funnel automated |
+| **1. Clients and Task Management** ✅ | Clients and contacts, projects from job templates, tasks + subtasks, List/Board/Calendar/Timeline views, comments with @mentions, in-app notifications, My Dashboard. *File attachments move to Phase 4 (with file storage); recurring tasks move to Phase 2 (with the background worker).* | The team can run daily work in the app (most value, earliest) |
+| **2. Leads, Pipeline and Booking** (2–3 wks) | CRM, deal Kanban, lead capture form, Google Calendar booking links, background worker, recurring tasks, automations: lead → booking email → discovery task → proposal task | Front of funnel automated |
 | **3. Proposals, DocuSign and Paystack** (3–4 wks) | Service catalogue and packages, proposal builder, DocuSign embedded send and sign, Paystack checkout and subscriptions, webhooks, "Signed + Paid → Won" automation | Lead turns into a paying client with no manual steps |
 | **4. Onboarding** (2 wks) | Onboarding Kanban, templates, secure per-request upload links (no client login), reminders, welcome pack, notifications | Onboarding runs to a checklist |
 | **5. Resource Hub** (1–2 wks) | SOP library, search, versioning, linking SOPs to task templates, staff onboarding programmes | Knowledge and new-hire training in one place |

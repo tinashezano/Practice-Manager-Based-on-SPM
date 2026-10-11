@@ -14,9 +14,10 @@ import { can, ROLE_LABELS } from "@/lib/permissions";
 type Props = {
   user: { name: string; email: string; role: Role };
   signOutAction: () => Promise<void>;
+  unreadCount: number;
 };
 
-export function Sidebar({ user, signOutAction }: Props) {
+export function Sidebar({ user, signOutAction, unreadCount }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
@@ -85,8 +86,16 @@ export function Sidebar({ user, signOutAction }: Props) {
                             collapsed && "justify-center",
                           )}
                         >
-                          <Icon size={16} className="shrink-0" />
+                          <span className="relative shrink-0">
+                            <Icon size={16} />
+                            {collapsed && item.href === "/notifications" && unreadCount > 0 && (
+                              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-danger" />
+                            )}
+                          </span>
                           {!collapsed && item.label}
+                          {!collapsed && item.href === "/notifications" && unreadCount > 0 && (
+                            <span className="ml-auto rounded-full bg-danger px-1.5 text-[10px] font-semibold text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>
+                          )}
                         </Link>
                       </li>
                     );

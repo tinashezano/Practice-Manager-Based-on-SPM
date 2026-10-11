@@ -5,7 +5,8 @@ import { can, type Permission } from "@/lib/permissions";
 export async function requireUser() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
-  return session.user;
+  const { user } = session;
+  return { ...user, name: user.name ?? user.email ?? "A colleague" };
 }
 
 export async function requirePermission(permission: Permission) {

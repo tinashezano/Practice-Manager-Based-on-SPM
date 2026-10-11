@@ -1,4 +1,4 @@
-import { Badge, Button, Card, PageHeader, initials, inputClass } from "@/components/ui";
+import { Badge, Button, Card, PageHeader, initials, inputBase } from "@/components/ui";
 import { db } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
@@ -57,7 +57,7 @@ export default async function TeamPage() {
                   <td className="px-3 py-3" colSpan={3}>
                     <form action={updateStaff} className="flex items-center gap-3">
                       <input type="hidden" name="userId" value={u.id} />
-                      <select name="role" defaultValue={u.role} disabled={self} className={`${inputClass} w-36`}>
+                      <select name="role" defaultValue={u.role} disabled={self} className={`${inputBase} w-36`}>
                         {Object.entries(ROLE_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>{label}</option>
                         ))}
@@ -69,9 +69,9 @@ export default async function TeamPage() {
                         min={0}
                         max={80}
                         defaultValue={u.weeklyCapacityHours}
-                        className={`${inputClass} w-24`}
+                        className={`${inputBase} w-24`}
                       />
-                      <select name="active" defaultValue={String(u.active)} disabled={self} className={`${inputClass} w-28`}>
+                      <select name="active" defaultValue={String(u.active)} disabled={self} className={`${inputBase} w-28`}>
                         <option value="true">Active</option>
                         <option value="false">Inactive</option>
                       </select>
