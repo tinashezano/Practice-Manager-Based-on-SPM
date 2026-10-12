@@ -28,6 +28,11 @@ export const AUTOMATIONS = {
     detail: "Marks the lead's open tasks as done so they leave everyone's lists.",
     config: {} as Config,
   },
+  "onboarding.reminders": {
+    title: "Remind clients about outstanding onboarding information",
+    detail: "Emails the client the list of what's still outstanding with their upload link. After the last reminder, creates a task to call them.",
+    config: { days: 3, max: 4 } as Config,
+  },
   "task.recurrence": {
     title: "Create the next occurrence of recurring tasks",
     detail: "When a repeating task is completed, the next one is created with its subtasks reset.",

@@ -10,6 +10,7 @@ import { taskHome } from "@/lib/task-meta";
 import { notify } from "@/lib/notify";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { saveFile } from "@/lib/storage";
 import { canEditTask } from "@/lib/task-access";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
@@ -209,6 +210,33 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
     body: text.slice(0, 140),
     link: `/tasks?task=${task.id}`,
   });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function attachFiles(taskId: string, fd: FormData): Promise<Result> {
+  const actor = await requirePermission("tasks.work");
+  if (!(await canEditTask(actor, taskId))) return { ok: false, error: "You can only attach files to tasks you're working on" };
+  const files = fd.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return { ok: false, error: "Choose a file" };
+  try {
+    for (const f of files) {
+      const stored = await saveFile(f, { purpose: "TASK_ATTACHMENT", uploadedById: actor.id });
+      await db.taskAttachment.create({ data: { taskId, fileId: stored.id } });
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Upload failed" };
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function removeAttachment(attachmentId: string): Promise<Result> {
+  const actor = await requirePermission("tasks.work");
+  const a = await db.taskAttachment.findUnique({ where: { id: attachmentId }, include: { file: { select: { uploadedById: true } } } });
+  if (!a) return { ok: false, error: "Attachment not found" };
+  if (a.file.uploadedById !== actor.id && !can(actor.role, "tasks.manageAll")) return { ok: false, error: "Only the uploader or a manager can remove this file" };
+  await db.storedFile.delete({ where: { id: a.fileId } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

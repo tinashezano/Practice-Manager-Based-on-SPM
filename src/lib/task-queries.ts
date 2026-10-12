@@ -43,7 +43,7 @@ export const taskListInclude = {
     orderBy: { position: "asc" },
     include: { assignee: userSelect },
   },
-  _count: { select: { comments: true } },
+  _count: { select: { comments: true, attachments: true } },
 } satisfies Prisma.TaskInclude;
 
 export type TaskRow = Prisma.TaskGetPayload<{ include: typeof taskListInclude }>;
@@ -70,6 +70,7 @@ export async function getTaskDetail(id: string) {
       createdBy: userSelect,
       subtasks: { orderBy: { position: "asc" }, include: { assignee: userSelect } },
       comments: { orderBy: { createdAt: "asc" }, include: { author: userSelect } },
+      attachments: { orderBy: { createdAt: "asc" }, include: { file: { select: { id: true, name: true, size: true } } } },
     },
   });
 }

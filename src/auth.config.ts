@@ -30,6 +30,7 @@ export const authConfig = {
         pathname === "/enquiry" ||
         pathname.startsWith("/book/") ||
         pathname.startsWith("/p/") ||
+        pathname.startsWith("/upload/") ||
         pathname === "/api/paystack/webhook";
       if (isPublic) return true;
       return !!auth?.user;

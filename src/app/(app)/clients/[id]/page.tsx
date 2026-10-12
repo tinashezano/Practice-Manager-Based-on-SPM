@@ -1,7 +1,9 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Mail, Pencil, Phone, Star, X } from "lucide-react";
+import { ClipboardCheck, Mail, Pencil, Phone, Star, X } from "lucide-react";
+import { STAGE_INFO } from "@/lib/onboarding-meta";
+import { progress as onboardingProgress } from "@/lib/onboarding";
 import { Avatar } from "@/components/avatar";
 import { TaskWorkspace, type TaskSearchParams } from "@/components/tasks/task-workspace";
 import { Badge, Button, Card } from "@/components/ui";
@@ -29,6 +31,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   });
   if (!client) notFound();
 
+  const onboarding = await db.onboarding.findFirst({ where: { clientId: id }, orderBy: { createdAt: "desc" }, include: { items: { select: { kind: true, required: true, status: true } } } });
   const [counts, templates, staff] = await Promise.all([
     db.task.groupBy({ by: ["projectId", "status"], where: { clientId: id, parentId: null }, _count: true }),
     manage ? db.projectTemplate.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { tasks: { where: { parentId: null } } } } } }) : [],
@@ -58,6 +61,28 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
         </div>
         {manage && <Link href={`/clients/${id}/edit`}><Button variant="secondary"><Pencil size={14} /> Edit client</Button></Link>}
       </div>
+
+      {onboarding ? (
+        onboarding.stage !== "COMPLETE" && (
+          <Link href={`/clients/${id}/onboarding`} className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm hover:border-amber-300">
+            <ClipboardCheck size={18} className="text-warning" />
+            <span className="font-medium">Onboarding: {STAGE_INFO[onboarding.stage].label}</span>
+            <span className="text-muted">
+              {(() => {
+                const op = onboardingProgress(onboarding.items);
+                return `${op.infoReceived}/${op.infoTotal} client items received · ${op.setupDone}/${op.setupTotal} setup steps done`;
+              })()}
+            </span>
+            <span className="ml-auto text-brand">Open →</span>
+          </Link>
+        )
+      ) : (
+        client.status === "ONBOARDING" && (
+          <Link href={`/clients/${id}/onboarding`} className="mb-4 flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted hover:border-brand hover:text-brand">
+            <ClipboardCheck size={18} /> No onboarding yet. Start one to request documents from this client →
+          </Link>
+        )
+      )}
 
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">

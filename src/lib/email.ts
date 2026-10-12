@@ -88,14 +88,49 @@ export function proposalEmail(p: { contactName: string; senderName: string; titl
   };
 }
 
-export function welcomeEmail(p: { contactName: string; senderName: string; message: string; services: string[]; ownerName: string }) {
+
+function itemList(items: string[]) {
+  return { html: `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`, text: items.map((i) => `- ${i}`).join("\n") };
+}
+
+/** Welcome pack: welcome message, services, and what we need with the upload link. */
+export function welcomePackEmail(p: { contactName: string; senderName: string; message: string; services: string[]; ownerName: string; needed: string[]; uploadUrl: string }) {
   const first = p.contactName.split(" ")[0];
-  const list = p.services.map((s) => `<li>${esc(s)}</li>`).join("");
+  const services = itemList(p.services);
+  const needed = itemList(p.needed);
   return {
-    subject: "Welcome to Outset!",
+    subject: "Welcome to Outset: your next steps",
     html: layout(
-      `<p>Hi ${esc(first!)},</p>${p.message.split(/\n\n+/).map((para) => `<p>${esc(para).replace(/\n/g, "<br>")}</p>`).join("")}<p><strong>Your services</strong></p><ul>${list}</ul><p>Your main contact is <strong>${esc(p.ownerName)}</strong>. We'll be in touch shortly with the information we need from you to get started.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`,
+      `<p>Hi ${esc(first!)},</p>${p.message.split(/\n\n+/).map((para) => `<p>${esc(para).replace(/\n/g, "<br>")}</p>`).join("")}<p><strong>Your services</strong></p>${services.html}<p><strong>What we need from you</strong></p>${needed.html}<p>Upload everything securely here. You can do it in parts and come back any time:</p>${button(p.uploadUrl, "Upload your documents")}<p>Your main contact is <strong>${esc(p.ownerName)}</strong>.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`,
     ),
-    text: `Hi ${first},\n\n${p.message}\n\nYour services:\n${p.services.map((s) => `- ${s}`).join("\n")}\n\nYour main contact is ${p.ownerName}. We'll be in touch shortly with the information we need from you to get started.\n\nKind regards,\n${p.senderName}`,
+    text: `Hi ${first},\n\n${p.message}\n\nYour services:\n${services.text}\n\nWhat we need from you:\n${needed.text}\n\nUpload securely here (you can do it in parts): ${p.uploadUrl}\n\nYour main contact is ${p.ownerName}.\n\nKind regards,\n${p.senderName}`,
+  };
+}
+
+export function onboardingReminderEmail(p: { contactName: string; senderName: string; outstanding: string[]; uploadUrl: string; final: boolean }) {
+  const first = p.contactName.split(" ")[0];
+  const list = itemList(p.outstanding);
+  return {
+    subject: p.final ? "Final reminder: we still need a few documents" : "Reminder: a few documents still outstanding",
+    html: layout(`<p>Hi ${esc(first!)},</p><p>To finish setting up your account we still need:</p>${list.html}${button(p.uploadUrl, "Upload documents")}<p>If anything is unclear, just reply to this email.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`),
+    text: `Hi ${first},\n\nTo finish setting up your account we still need:\n${list.text}\n\nUpload here: ${p.uploadUrl}\n\nIf anything is unclear, just reply to this email.\n\nKind regards,\n${p.senderName}`,
+  };
+}
+
+export function itemReturnedEmail(p: { contactName: string; senderName: string; item: string; note: string; uploadUrl: string }) {
+  const first = p.contactName.split(" ")[0];
+  return {
+    subject: `Please resend: ${p.item}`,
+    html: layout(`<p>Hi ${esc(first!)},</p><p>We couldn't use what we received for <strong>${esc(p.item)}</strong>:</p><blockquote style="border-left:3px solid #e6e8f2;margin:0;padding-left:12px;color:#6b7090">${esc(p.note)}</blockquote>${button(p.uploadUrl, "Upload again")}<p>Kind regards,<br>${esc(p.senderName)}</p>`),
+    text: `Hi ${first},\n\nWe couldn't use what we received for "${p.item}":\n${p.note}\n\nUpload again: ${p.uploadUrl}\n\nKind regards,\n${p.senderName}`,
+  };
+}
+
+export function onboardingCompleteEmail(p: { contactName: string; senderName: string; ownerName: string }) {
+  const first = p.contactName.split(" ")[0];
+  return {
+    subject: "You're all set up with Outset",
+    html: layout(`<p>Hi ${esc(first!)},</p><p>Good news: your onboarding is complete and we've started work. Thank you for getting everything to us.</p><p>${esc(p.ownerName)} remains your main contact. Reply to this email any time.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`),
+    text: `Hi ${first},\n\nGood news: your onboarding is complete and we've started work. Thank you for getting everything to us.\n\n${p.ownerName} remains your main contact. Reply to this email any time.\n\nKind regards,\n${p.senderName}`,
   };
 }

@@ -3,12 +3,13 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Trash2, X } from "lucide-react";
+import { ChevronRight, Paperclip, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { addComment, deleteTask, updateTask } from "@/app/(app)/tasks/actions";
+import { addComment, attachFiles, deleteTask, removeAttachment, updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
 import { Button, inputClass } from "@/components/ui";
 import { formatDateTime, toISODate } from "@/lib/dates";
+import { ACCEPT_ATTR, formatBytes } from "@/lib/file-meta";
 import type { TaskDetail } from "@/lib/task-queries";
 import { PRIORITIES, PRIORITY_META, RECURRENCE_LABELS, STATUS_META, TASK_STATUSES, taskHome } from "@/lib/task-meta";
 import { DueDate, StatusBadge } from "./task-bits";
@@ -174,6 +175,26 @@ export function TaskPanel({
             </div>
           </div>
         )}
+
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Attachments ({task.attachments.length})</div>
+          <ul className="space-y-1">
+            {task.attachments.map((a) => (
+              <li key={a.id} className="group flex items-center gap-2 text-sm">
+                <Paperclip size={13} className="text-muted" />
+                <a href={`/api/files/${a.file.id}?view=1`} target="_blank" className="truncate text-brand hover:underline">{a.file.name}</a>
+                <span className="text-xs text-muted">{formatBytes(a.file.size)}</span>
+                <button onClick={() => confirm(`Remove ${a.file.name}?`) && run(() => removeAttachment(a.id))} className="ml-auto text-muted opacity-0 hover:text-danger group-hover:opacity-100" aria-label={`Remove ${a.file.name}`}><X size={13} /></button>
+              </li>
+            ))}
+          </ul>
+          {canEdit && (
+            <form action={(fd) => run(() => attachFiles(task.id, fd))} className="mt-2 flex items-center gap-2">
+              <input type="file" name="files" multiple accept={ACCEPT_ATTR} className="min-w-0 flex-1 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-brand-soft file:px-2.5 file:py-1 file:text-brand" />
+              <Button variant="secondary" disabled={pending}>Upload</Button>
+            </form>
+          )}
+        </div>
 
         <div>
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Comments ({task.comments.length})</div>

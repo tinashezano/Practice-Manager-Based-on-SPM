@@ -9,7 +9,7 @@ import { saveAutomation } from "./actions";
 
 export const metadata = { title: "Automations" };
 
-const CONFIG_LABELS: Record<string, string> = { days: "Days to wait", dueDays: "Due in (business days)" };
+const CONFIG_LABELS: Record<string, string> = { days: "Days", dueDays: "Due in (business days)", max: "Max reminders" };
 
 export default async function AutomationsPage() {
   await requirePermission("settings.manage");

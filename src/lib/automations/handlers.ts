@@ -5,7 +5,8 @@ import { addDays, parseISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { changeDealStage, convertDealToClient, logActivity } from "@/lib/deals";
-import { bookingConfirmationEmail, bookingInviteEmail, deliverEmail, queueEmail, welcomeEmail } from "@/lib/email";
+import { bookingConfirmationEmail, bookingInviteEmail, deliverEmail, queueEmail, welcomePackEmail } from "@/lib/email";
+import { outstandingLabels, reminderJob, startOnboarding, uploadUrl } from "@/lib/onboarding";
 import { DEFAULT_WELCOME, getFirmSettings, proposalNumber } from "@/lib/firm";
 import { formatRand } from "@/lib/money";
 import { createPlan, createSubscription } from "@/lib/paystack";
@@ -36,6 +37,8 @@ export async function runJob(name: string, payload: Payload) {
       return leadFollowUp(String(payload.dealId));
     case "paystack.subscribe":
       return paystackSubscribe(payload);
+    case "onboarding.reminder":
+      return reminderJob(String(payload.onboardingId));
     default:
       throw new Error(`Unknown job "${name}"`);
   }
@@ -346,27 +349,21 @@ async function onProposalAccepted(proposalId: string) {
         startDate: start,
       });
     }
-    await db.task.create({
-      data: {
-        title: `Start onboarding: ${p.deal.name}`,
-        description: "Welcome pack sent automatically. Request the client's information and set up their accounts.",
-        clientId,
-        assigneeId: p.deal.ownerId,
-        dueDate: parseISODate(addDays(todayISO(), 1)),
-        priority: "HIGH",
-        automationKey: "client.onboarding",
-      },
-    });
   }
 
+  // Onboarding: checklist from the services bought, then the welcome pack with the upload link.
+  const services = p.lineItems.map((l) => l.name);
+  const onboarding = await startOnboarding(clientId, { ownerId: p.deal.ownerId, actorId: null, services, proposalId: p.id });
   const firm = await getFirmSettings();
   if (p.deal.email) {
-    const mail = welcomeEmail({
+    const mail = welcomePackEmail({
       contactName: p.deal.contactName,
       senderName: p.deal.owner?.name ?? firm.legalName,
       message: firm.welcomeMessage || DEFAULT_WELCOME,
-      services: p.lineItems.map((l) => l.name),
+      services,
       ownerName: p.deal.owner?.name ?? firm.legalName,
+      needed: await outstandingLabels(onboarding.id),
+      uploadUrl: uploadUrl(onboarding.uploadToken),
     });
     await queueEmail({ to: p.deal.email, ...mail, senderId: p.deal.ownerId, dealId: p.dealId });
   }
@@ -378,7 +375,7 @@ async function onProposalAccepted(proposalId: string) {
     body: `${formatRand(t.dueNow)} paid${t.monthly ? ` · ${formatRand(t.monthly)}/month` : ""}`,
     link: `/clients/${clientId}`,
   });
-  await logActivity(p.dealId, "SYSTEM", `Proposal ${proposalNumber(p.number)} accepted and paid. Client, projects and onboarding task created; welcome pack queued.`);
+  await logActivity(p.dealId, "SYSTEM", `Proposal ${proposalNumber(p.number)} accepted and paid. Client, projects and onboarding created; welcome pack with upload link queued.`);
 }
 
 /** Sets up the monthly retainer at Paystack, reusing the card from the first payment. */

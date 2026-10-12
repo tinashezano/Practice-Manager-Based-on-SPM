@@ -97,6 +97,7 @@ model Client {
   deals         Deal[]
   proposals     Proposal[]
   subscriptions Subscription[]
+  onboardings   Onboarding[]
 
   @@index([status])
 }
@@ -198,7 +199,8 @@ model Task {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  comments TaskComment[]
+  comments    TaskComment[]
+  attachments TaskAttachment[]
 
   @@index([clientId])
   @@index([dealId])
@@ -647,13 +649,123 @@ model Subscription {
 
 // Small files kept in Postgres (signed proposals). Larger client documents
 // will use object storage in Phase 4.
+enum FilePurpose {
+  SIGNED_PROPOSAL
+  CLIENT_DOCUMENT
+  TASK_ATTACHMENT
+}
+
 model StoredFile {
+  id               String          @id @default(cuid())
+  name             String
+  contentType      String
+  size             Int
+  data             Bytes
+  purpose          FilePurpose     @default(SIGNED_PROPOSAL)
+  uploadedById     String?
+  // Set when the client uploaded it through their onboarding link.
+  uploadedByClient Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  proposals        Proposal[]
+  onboardingItem   OnboardingFile?
+  taskAttachment   TaskAttachment?
+}
+
+model TaskAttachment {
+  id        String     @id @default(cuid())
+  taskId    String
+  task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileId    String     @unique
+  file      StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@index([taskId])
+}
+
+enum OnboardingStage {
+  INFO_REQUESTED
+  INFO_RECEIVED
+  SETUP
+  REVIEW
+  COMPLETE
+}
+
+model Onboarding {
+  id             String          @id @default(cuid())
+  clientId       String
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  stage          OnboardingStage @default(INFO_REQUESTED)
+  stageChangedAt DateTime        @default(now())
+  ownerId        String?
+  reviewerId     String?
+  proposalId     String?
+  // Secret for the client's upload page.
+  uploadToken    String          @unique
+  remindersSent  Int             @default(0)
+  lastReminderAt DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  items      OnboardingItem[]
+  activities OnboardingActivity[]
+
+  @@index([stage])
+}
+
+enum OnboardingItemKind {
+  INFO
+  SETUP
+}
+
+enum OnboardingItemStatus {
+  PENDING
+  RECEIVED
+  ACCEPTED
+  REJECTED
+  NOT_APPLICABLE
+  DONE
+}
+
+model OnboardingItem {
+  id            String               @id @default(cuid())
+  onboardingId  String
+  onboarding    Onboarding           @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  kind          OnboardingItemKind
+  label         String
+  description   String?
+  required      Boolean              @default(true)
+  // INFO items: client can upload files and/or type an answer.
+  allowsText    Boolean              @default(false)
+  status        OnboardingItemStatus @default(PENDING)
+  clientAnswer  String?
+  // Shown to the client when an item is sent back.
+  staffNote     String?
+  completedById String?
+  completedAt   DateTime?
+  position      Int                  @default(0)
+  files         OnboardingFile[]
+
+  @@index([onboardingId, kind])
+}
+
+model OnboardingFile {
+  id        String         @id @default(cuid())
+  itemId    String
+  item      OnboardingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  fileId    String         @unique
+  file      StoredFile     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+}
+
+model OnboardingActivity {
   id           String     @id @default(cuid())
-  name         String
-  contentType  String
-  size         Int
-  data         Bytes
-  uploadedById String?
+  onboardingId String
+  onboarding   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  body         String
+  actorId      String?
+  byClient     Boolean    @default(false)
   createdAt    DateTime   @default(now())
-  proposals    Proposal[]
+
+  @@index([onboardingId, createdAt])
 }
