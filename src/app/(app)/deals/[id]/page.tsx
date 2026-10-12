@@ -13,6 +13,10 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
 import { ENTITY_LABELS } from "@/lib/task-meta";
+import { proposalNumber } from "@/lib/firm";
+import { formatRand } from "@/lib/money";
+import { STATUS_LABELS, displayStatus, totalsOf } from "@/lib/proposals";
+import { FileSignature, Plus } from "lucide-react";
 import { ConvertButton, NoteForm, SendLinkForm, StageControl } from "./deal-controls";
 
 const ACTIVITY_DOT: Record<string, string> = {
@@ -34,6 +38,7 @@ export default async function DealPage({ params, searchParams }: { params: Promi
       client: { select: { id: true, name: true } },
       activities: { orderBy: { createdAt: "desc" }, take: 100 },
       bookings: { orderBy: { startsAt: "desc" }, include: { host: { select: { name: true } }, bookingLink: { select: { title: true } } } },
+      proposals: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!deal) notFound();
@@ -108,7 +113,31 @@ export default async function DealPage({ params, searchParams }: { params: Promi
           </Card>
         </div>
 
-        <Card className="lg:col-span-2">
+        <div className="space-y-4 lg:col-span-2">
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold"><FileSignature size={15} /> Proposals</h2>
+            {can(user.role, "proposals.manage") && deal.stage !== "LOST" && !deal.client && (
+              <Link href={`/proposals/new?deal=${deal.id}`}><Button variant="secondary"><Plus size={14} /> Create proposal</Button></Link>
+            )}
+          </div>
+          <div className="divide-y divide-border">
+            {deal.proposals.map((p) => {
+              const s = displayStatus(p);
+              const t = totalsOf(p);
+              return (
+                <Link key={p.id} href={`/proposals/${p.id}`} className="flex items-center gap-3 py-2 text-sm hover:text-brand">
+                  <span className="font-mono text-xs text-muted">{proposalNumber(p.number)}</span>
+                  <span className="min-w-0 flex-1 truncate">{p.title}</span>
+                  <span className="text-xs text-muted">{formatRand(t.dueNow)}{t.monthly ? ` + ${formatRand(t.monthly)}/mo` : ""}</span>
+                  <Badge tone={STATUS_LABELS[s].tone}>{STATUS_LABELS[s].label}</Badge>
+                </Link>
+              );
+            })}
+            {!deal.proposals.length && <p className="py-2 text-xs text-muted">No proposals yet.</p>}
+          </div>
+        </Card>
+        <Card>
           <h2 className="mb-3 text-sm font-semibold">Activity</h2>
           <NoteForm dealId={deal.id} />
           <ol className="mt-5 space-y-3">
@@ -123,6 +152,7 @@ export default async function DealPage({ params, searchParams }: { params: Promi
             ))}
           </ol>
         </Card>
+        </div>
       </div>
 
       <TaskWorkspace

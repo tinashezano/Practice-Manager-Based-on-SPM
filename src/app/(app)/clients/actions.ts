@@ -4,7 +4,8 @@ import { ClientStatus, EntityType, ProjectStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { addDays, parseISODate, todayISO } from "@/lib/dates";
+import { todayISO } from "@/lib/dates";
+import { createProjectFromTemplate } from "@/lib/projects";
 import { db } from "@/lib/db";
 import { emitEvent } from "@/lib/events";
 import { notify } from "@/lib/notify";
@@ -93,68 +94,21 @@ export async function createProject(_: FormState, formData: FormData): Promise<F
   if (!parsed.success) return { error: parsed.error.issues[0]!.message };
   const { clientId, templateId, ownerId } = parsed.data;
 
-  const template = templateId
-    ? await db.projectTemplate.findUnique({ where: { id: templateId }, include: { tasks: { orderBy: { position: "asc" } } } })
-    : null;
-  const name = parsed.data.name || template?.name;
-  if (!name) return { error: "Give the project a name or pick a template" };
-
-  const start = parsed.data.startDate ?? todayISO();
-  if (!parseISODate(start)) return { error: "Invalid start date" };
   const owner = ownerId ?? actor.id;
-
-  const project = await db.$transaction(async (tx) => {
-    const project = await tx.project.create({
-      data: {
-        clientId,
-        name,
-        description: template?.description,
-        ownerId: owner,
-        templateId: template?.id,
-        startDate: parseISODate(start),
-        dueDate: parseISODate(parsed.data.dueDate ?? null),
-      },
+  let project;
+  try {
+    project = await createProjectFromTemplate({
+      clientId,
+      name: parsed.data.name,
+      templateId,
+      ownerId: owner,
+      createdById: actor.id,
+      startDate: parsed.data.startDate ?? todayISO(),
+      dueDate: parsed.data.dueDate ?? null,
     });
-    if (template) {
-      const due = (offset: number | null) => (offset === null ? null : parseISODate(addDays(start, offset)));
-      const ids = new Map<string, string>();
-      for (const t of template.tasks.filter((t) => !t.parentId)) {
-        const task = await tx.task.create({
-          data: {
-            title: t.title,
-            description: t.description,
-            clientId,
-            projectId: project.id,
-            assigneeId: owner,
-            createdById: actor.id,
-            priority: t.priority,
-            estimateMinutes: t.estimateMinutes,
-            startDate: parseISODate(start),
-            dueDate: due(t.dueOffsetDays),
-            position: t.position,
-          },
-        });
-        ids.set(t.id, task.id);
-      }
-      for (const t of template.tasks.filter((t) => t.parentId)) {
-        await tx.task.create({
-          data: {
-            title: t.title,
-            clientId,
-            projectId: project.id,
-            parentId: ids.get(t.parentId!)!,
-            assigneeId: owner,
-            createdById: actor.id,
-            priority: t.priority,
-            estimateMinutes: t.estimateMinutes,
-            dueDate: due(t.dueOffsetDays),
-            position: t.position,
-          },
-        });
-      }
-    }
-    return project;
-  });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Couldn't create the project" };
+  }
 
   await notify([owner], actor.id, { title: `New project assigned to you: ${project.name}`, link: `/clients/${clientId}?project=${project.id}` });
   revalidatePath("/", "layout");

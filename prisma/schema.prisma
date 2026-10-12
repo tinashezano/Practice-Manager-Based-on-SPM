@@ -91,10 +91,12 @@ model Client {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  contacts ClientContact[]
-  projects Project[]
-  tasks    Task[]
-  deals    Deal[]
+  contacts      ClientContact[]
+  projects      Project[]
+  tasks         Task[]
+  deals         Deal[]
+  proposals     Proposal[]
+  subscriptions Subscription[]
 
   @@index([status])
 }
@@ -239,6 +241,7 @@ model ProjectTemplate {
   createdAt   DateTime       @default(now())
   tasks       TemplateTask[]
   projects    Project[]
+  services    Service[]
 }
 
 model TemplateTask {
@@ -305,6 +308,7 @@ model Deal {
   tasks      Task[]
   bookings   Booking[]
   emails     EmailMessage[]
+  proposals  Proposal[]
 
   @@index([stage])
   @@index([email])
@@ -445,4 +449,211 @@ model AutomationSetting {
   enabled   Boolean  @default(true)
   config    Json     @default("{}")
   updatedAt DateTime @updatedAt
+}
+
+// One row: firm details shown on proposals, VAT and proposal defaults.
+model FirmSettings {
+  id                   String   @id @default("firm")
+  legalName            String   @default("Outset")
+  registrationNumber   String?
+  vatNumber            String?
+  vatRegistered        Boolean  @default(true)
+  vatRatePercent       Int      @default(15)
+  email                String?
+  phone                String?
+  address              String?
+  proposalValidityDays Int      @default(14)
+  proposalTerms        String?
+  welcomeMessage       String?
+  updatedAt            DateTime @updatedAt
+}
+
+enum BillingType {
+  ONCE_OFF
+  MONTHLY
+}
+
+model Service {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  billingType BillingType      @default(MONTHLY)
+  // Price excluding VAT, in cents.
+  priceCents  Int
+  taxable     Boolean          @default(true)
+  // Job template used to set up the project when a client signs up.
+  templateId  String?
+  template    ProjectTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  active      Boolean          @default(true)
+  position    Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  packageItems ServicePackageItem[]
+  lineItems    ProposalLineItem[]
+}
+
+model ServicePackage {
+  id          String               @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  items       ServicePackageItem[]
+}
+
+model ServicePackageItem {
+  id         String         @id @default(cuid())
+  packageId  String
+  package    ServicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  serviceId  String
+  service    Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  quantity   Int            @default(1)
+  // Optional package price per unit (excl. VAT); falls back to the service price.
+  priceCents Int?
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  SIGNED
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum SignatureMethod {
+  CLICK_TO_ACCEPT
+  UPLOADED_PDF
+  DOCUSIGN
+}
+
+model Proposal {
+  id              String           @id @default(cuid())
+  number          Int              @unique @default(autoincrement())
+  title           String
+  dealId          String
+  deal            Deal             @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  status          ProposalStatus   @default(DRAFT)
+  introduction    String?
+  terms           String?
+  validUntil      DateTime         @db.Date
+  // When retainers start; the first month is part of the first payment.
+  startDate       DateTime?        @db.Date
+  vatRatePercent  Int
+  // Totals in cents, recalculated whenever line items change.
+  onceOffExVat    Int              @default(0)
+  monthlyExVat    Int              @default(0)
+  onceOffVat      Int              @default(0)
+  monthlyVat      Int              @default(0)
+  // Secret for the client-facing link.
+  publicToken     String           @unique
+  createdById     String?
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  signedAt        DateTime?
+  signatureMethod SignatureMethod?
+  signedName      String?
+  signedIp        String?
+  signedUserAgent String?
+  // SHA-256 of the proposal content the client accepted.
+  signedHash      String?
+  signedFileId    String?
+  signedFile      StoredFile?      @relation(fields: [signedFileId], references: [id], onDelete: SetNull)
+  paidAt          DateTime?
+  acceptedAt      DateTime?
+  declinedReason  String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  lineItems     ProposalLineItem[]
+  payments      Payment[]
+  subscriptions Subscription[]
+
+  @@index([status])
+  @@index([dealId])
+}
+
+model ProposalLineItem {
+  id             String      @id @default(cuid())
+  proposalId     String
+  proposal       Proposal    @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  serviceId      String?
+  service        Service?    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  name           String
+  description    String?
+  billingType    BillingType
+  quantity       Int         @default(1)
+  unitPriceCents Int
+  taxable        Boolean     @default(true)
+  position       Int         @default(0)
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  SIMULATED
+  MANUAL
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Payment {
+  id           String          @id @default(cuid())
+  proposalId   String
+  proposal     Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  provider     PaymentProvider
+  reference    String          @unique
+  amountCents  Int
+  currency     String          @default("ZAR")
+  status       PaymentStatus   @default(PENDING)
+  channel      String?
+  customerCode String?
+  note         String?
+  paidAt       DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  proposalId       String
+  proposal         Proposal           @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  clientId         String?
+  client           Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  provider         PaymentProvider
+  amountCents      Int
+  planCode         String?
+  subscriptionCode String?            @unique
+  status           SubscriptionStatus @default(PENDING)
+  nextPaymentDate  DateTime?          @db.Date
+  lastError        String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+// Small files kept in Postgres (signed proposals). Larger client documents
+// will use object storage in Phase 4.
+model StoredFile {
+  id           String     @id @default(cuid())
+  name         String
+  contentType  String
+  size         Int
+  data         Bytes
+  uploadedById String?
+  createdAt    DateTime   @default(now())
+  proposals    Proposal[]
 }

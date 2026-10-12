@@ -68,4 +68,41 @@ async function main() {
   }
 }
 
-main().finally(() => db.$disconnect());
+// Sample catalogue (only if empty). PRICES ARE PLACEHOLDERS: edit them under Proposals → Services.
+async function seedServices() {
+  if ((await db.service.count()) > 0) return;
+  const tpl = async (name: string) => (await db.projectTemplate.findUnique({ where: { name } }))?.id ?? null;
+  const services: { name: string; description: string; billingType: "MONTHLY" | "ONCE_OFF"; price: number; template?: string; taxable?: boolean }[] = [
+    { name: "Monthly Bookkeeping", description: "Capturing, bank reconciliations and monthly management accounts.", billingType: "MONTHLY", price: 2500, template: "Monthly Bookkeeping" },
+    { name: "VAT Returns", description: "VAT201 preparation and eFiling submission every VAT period.", billingType: "MONTHLY", price: 750, template: "VAT201 Return" },
+    { name: "Payroll (up to 10 employees)", description: "Monthly payroll, payslips and EMP201 submissions.", billingType: "MONTHLY", price: 1200, template: "EMP201 Payroll Submission" },
+    { name: "Onboarding & Setup", description: "Taking over your records, setting up QuickBooks and SARS eFiling access.", billingType: "ONCE_OFF", price: 1500 },
+    { name: "Annual Financial Statements", description: "Year-end financial statements and company income tax return (ITR14).", billingType: "ONCE_OFF", price: 8500, template: "Annual Financial Statements" },
+    { name: "Company Registration (CIPC)", description: "New company registration through to SARS income tax registration.", billingType: "ONCE_OFF", price: 2500, template: "Company Registration (CIPC)" },
+    { name: "CIPC Annual Return", description: "Filing your company's annual return with CIPC.", billingType: "ONCE_OFF", price: 650, template: "CIPC Annual Return" },
+  ];
+  const ids: Record<string, string> = {};
+  for (const [i, sv] of services.entries()) {
+    const created = await db.service.create({
+      data: { name: sv.name, description: sv.description, billingType: sv.billingType, priceCents: sv.price * 100, taxable: sv.taxable ?? true, templateId: sv.template ? await tpl(sv.template) : null, position: i },
+    });
+    ids[sv.name] = created.id;
+  }
+  await db.servicePackage.create({
+    data: {
+      name: "Small Business Essentials",
+      description: "Bookkeeping and VAT for a VAT-registered small business.",
+      items: { create: [{ serviceId: ids["Onboarding & Setup"]! }, { serviceId: ids["Monthly Bookkeeping"]! }, { serviceId: ids["VAT Returns"]! }] },
+    },
+  });
+  await db.servicePackage.create({
+    data: {
+      name: "Startup Launch",
+      description: "Register the company and keep the books from day one.",
+      items: { create: [{ serviceId: ids["Company Registration (CIPC)"]! }, { serviceId: ids["Monthly Bookkeeping"]! }] },
+    },
+  });
+  console.log("Sample services and packages added (placeholder prices).");
+}
+
+main().then(seedServices).finally(() => db.$disconnect());

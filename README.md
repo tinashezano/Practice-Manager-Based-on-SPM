@@ -53,6 +53,23 @@ address can sign in.
 `railway.json` builds with `npm run build`. On each deploy it runs database migrations
 and the seed (safe to repeat) before starting, and uses `/api/health` as the healthcheck.
 
+## Paystack
+
+1. Paystack dashboard → **Settings → API Keys & Webhooks**: copy the **test** secret key
+   into `PAYSTACK_SECRET_KEY` (starts with `sk_test_`).
+2. Set the webhook URL to `https://<your-railway-domain>/api/paystack/webhook`.
+3. Send yourself a proposal, accept it and pay with a
+   [Paystack test card](https://paystack.com/docs/payments/test-payments/).
+4. When ready, swap in the `sk_live_` key. **Settings → Proposals & billing** shows which mode is active.
+
+With no key on a development machine, checkout is simulated so the whole flow can be
+tested; in production without a key, online payment is off and staff record EFTs.
+
+The first payment is the once-off fees plus the first month of any retainer (card only
+when there's a retainer, so the card can be reused). Retainers then become a Paystack
+subscription charged monthly. Payments are always re-verified with Paystack's API
+before anything changes.
+
 ## Automations
 
 Things that happen (new lead, booking, task completed, stage change) are recorded

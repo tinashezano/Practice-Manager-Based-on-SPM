@@ -21,13 +21,16 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
-      // Public: sign-in, health check, lead-facing booking pages and the enquiry form.
+      // Public: sign-in, health check, lead-facing booking pages, the enquiry form,
+      // client proposal pages and the Paystack webhook (verified by signature).
       const isPublic =
         pathname === "/login" ||
         pathname.startsWith("/api/auth") ||
         pathname === "/api/health" ||
         pathname === "/enquiry" ||
-        pathname.startsWith("/book/");
+        pathname.startsWith("/book/") ||
+        pathname.startsWith("/p/") ||
+        pathname === "/api/paystack/webhook";
       if (isPublic) return true;
       return !!auth?.user;
     },

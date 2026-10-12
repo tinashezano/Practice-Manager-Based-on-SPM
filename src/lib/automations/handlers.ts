@@ -3,8 +3,14 @@ import { firmDate } from "@/lib/availability";
 import { bookingUrl, formatWhen, manageUrl } from "@/lib/booking";
 import { addDays, parseISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { changeDealStage, logActivity } from "@/lib/deals";
-import { bookingConfirmationEmail, bookingInviteEmail, deliverEmail, queueEmail } from "@/lib/email";
+import { decrypt } from "@/lib/crypto";
+import { changeDealStage, convertDealToClient, logActivity } from "@/lib/deals";
+import { bookingConfirmationEmail, bookingInviteEmail, deliverEmail, queueEmail, welcomeEmail } from "@/lib/email";
+import { DEFAULT_WELCOME, getFirmSettings, proposalNumber } from "@/lib/firm";
+import { formatRand } from "@/lib/money";
+import { createPlan, createSubscription } from "@/lib/paystack";
+import { createProjectFromTemplate } from "@/lib/projects";
+import { finalizeIfComplete, totalsOf } from "@/lib/proposals";
 import { enqueue } from "@/lib/jobs";
 import { notify } from "@/lib/notify";
 import { nextOccurrence } from "@/lib/recurrence";
@@ -28,6 +34,8 @@ export async function runJob(name: string, payload: Payload) {
       return deliverEmail(String(payload.emailId));
     case "lead.followUp":
       return leadFollowUp(String(payload.dealId));
+    case "paystack.subscribe":
+      return paystackSubscribe(payload);
     default:
       throw new Error(`Unknown job "${name}"`);
   }
@@ -56,6 +64,13 @@ async function handleEvent(eventId: string) {
         break;
       case "deal.stageChanged":
         await onDealStageChanged(String(p.dealId), p.to as DealStage, event.actorId);
+        break;
+      case "proposal.signed":
+      case "payment.succeeded":
+        await finalizeIfComplete(String(p.proposalId));
+        break;
+      case "proposal.accepted":
+        await onProposalAccepted(String(p.proposalId));
         break;
     }
     await db.eventLog.update({ where: { id: eventId }, data: { processedAt: new Date(), error: null } });
@@ -297,4 +312,96 @@ function addBusinessDays(iso: string, days: number) {
     if (dow !== 0 && dow !== 6) left--;
   }
   return d;
+}
+
+// ---------- Proposals & payments ----------
+
+/**
+ * Signed + paid: create the client, set up a project per service (from its
+ * job template), send the welcome pack and tell the team.
+ */
+async function onProposalAccepted(proposalId: string) {
+  const p = await db.proposal.findUnique({
+    where: { id: proposalId },
+    include: { lineItems: { orderBy: { position: "asc" }, include: { service: true } }, deal: { include: { owner: true } } },
+  });
+  if (!p) return;
+  const clientId = p.clientId ?? (await convertDealToClient(p.dealId, null));
+  await db.proposal.update({ where: { id: p.id }, data: { clientId } });
+  await db.subscription.updateMany({ where: { proposalId: p.id }, data: { clientId } });
+
+  // Projects are created once per proposal (a retry won't duplicate them).
+  const already = await db.project.count({ where: { clientId, description: { contains: proposalNumber(p.number) } } });
+  if (!already) {
+    const start = p.startDate && p.startDate.toISOString().slice(0, 10) > todayISO() ? p.startDate.toISOString().slice(0, 10) : todayISO();
+    for (const line of p.lineItems) {
+      await createProjectFromTemplate({
+        clientId,
+        name: line.name,
+        // Also marks the project as created from this proposal (checked above on retries).
+        description: `From proposal ${proposalNumber(p.number)}${line.billingType === "MONTHLY" ? " (monthly retainer)" : ""}.`,
+        templateId: line.service?.templateId ?? null,
+        ownerId: p.deal.ownerId,
+        createdById: null,
+        startDate: start,
+      });
+    }
+    await db.task.create({
+      data: {
+        title: `Start onboarding: ${p.deal.name}`,
+        description: "Welcome pack sent automatically. Request the client's information and set up their accounts.",
+        clientId,
+        assigneeId: p.deal.ownerId,
+        dueDate: parseISODate(addDays(todayISO(), 1)),
+        priority: "HIGH",
+        automationKey: "client.onboarding",
+      },
+    });
+  }
+
+  const firm = await getFirmSettings();
+  if (p.deal.email) {
+    const mail = welcomeEmail({
+      contactName: p.deal.contactName,
+      senderName: p.deal.owner?.name ?? firm.legalName,
+      message: firm.welcomeMessage || DEFAULT_WELCOME,
+      services: p.lineItems.map((l) => l.name),
+      ownerName: p.deal.owner?.name ?? firm.legalName,
+    });
+    await queueEmail({ to: p.deal.email, ...mail, senderId: p.deal.ownerId, dealId: p.dealId });
+  }
+
+  const directors = await db.user.findMany({ where: { role: "DIRECTOR", active: true }, select: { id: true } });
+  const t = totalsOf(p);
+  await notify([p.deal.ownerId, ...directors.map((d) => d.id)], "system", {
+    title: `New client signed: ${p.deal.name}`,
+    body: `${formatRand(t.dueNow)} paid${t.monthly ? ` · ${formatRand(t.monthly)}/month` : ""}`,
+    link: `/clients/${clientId}`,
+  });
+  await logActivity(p.dealId, "SYSTEM", `Proposal ${proposalNumber(p.number)} accepted and paid. Client, projects and onboarding task created; welcome pack queued.`);
+}
+
+/** Sets up the monthly retainer at Paystack, reusing the card from the first payment. */
+async function paystackSubscribe(payload: Payload) {
+  const sub = await db.subscription.findUnique({ where: { id: String(payload.subscriptionId) }, include: { proposal: { include: { deal: true } } } });
+  if (!sub || sub.subscriptionCode) return;
+  const authorization = payload.authorization ? decrypt(String(payload.authorization)) : null;
+  if (!authorization || !payload.customerCode) {
+    await db.subscription.update({ where: { id: sub.id }, data: { lastError: "Card can't be reused (paid by another method). Bill this retainer manually." } });
+    await notify([sub.proposal.deal.ownerId], "system", { title: `Set up billing manually for ${sub.proposal.deal.name}`, body: "Their payment method can't be charged monthly.", link: `/proposals/${sub.proposalId}` });
+    return;
+  }
+  const planCode = sub.planCode ?? (await createPlan(`Outset retainer ${proposalNumber(sub.proposal.number)} ${sub.proposal.deal.name}`.slice(0, 100), sub.amountCents)).plan_code;
+  if (!sub.planCode) await db.subscription.update({ where: { id: sub.id }, data: { planCode } });
+  const created = await createSubscription({
+    customer: String(payload.customerCode),
+    plan: planCode,
+    authorization,
+    startDate: new Date(`${(sub.nextPaymentDate ?? new Date()).toISOString().slice(0, 10)}T08:00:00+02:00`),
+  });
+  await db.subscription.update({
+    where: { id: sub.id },
+    data: { subscriptionCode: created.subscription_code, status: "ACTIVE", lastError: null, nextPaymentDate: created.next_payment_date ? new Date(created.next_payment_date) : sub.nextPaymentDate },
+  });
+  await logActivity(sub.proposal.dealId, "SYSTEM", `Monthly retainer of ${formatRand(sub.amountCents)} set up at Paystack (${created.subscription_code}).`);
 }

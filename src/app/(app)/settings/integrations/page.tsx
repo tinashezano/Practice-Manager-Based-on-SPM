@@ -1,4 +1,5 @@
-import { CreditCard, FileSignature, Landmark } from "lucide-react";
+import { FileSignature, Landmark } from "lucide-react";
+import { PaystackStatus } from "@/components/paystack-status";
 import { Avatar } from "@/components/avatar";
 import { GoogleConnectCard } from "@/components/google-connect";
 import { Badge, Card, PageHeader } from "@/components/ui";
@@ -10,8 +11,7 @@ import { requirePermission } from "@/lib/session";
 export const metadata = { title: "Integrations" };
 
 const LATER = [
-  { icon: FileSignature, name: "DocuSign", text: "Proposals and engagement letters signed inside the app.", phase: 3 },
-  { icon: CreditCard, name: "Paystack", text: "Once-off payments and monthly retainers after signing.", phase: 3 },
+  { icon: FileSignature, name: "DocuSign", text: "Signing inside DocuSign once your account is ready. Until then clients accept online, or you upload the signed PDF.", phase: 3 },
   { icon: Landmark, name: "QuickBooks Online", text: "Clients, invoices and payments synced to your books.", phase: 8 },
 ];
 
@@ -46,12 +46,13 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
         <p className="border-t border-border px-5 py-3 text-xs text-muted">Each person connects their own account from Booking Links or Calendar. Booking hosts and lead owners need it for calendar availability and emails.</p>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="mb-4"><PaystackStatus /></div>
+      <div className="grid gap-4 md:grid-cols-2">
         {LATER.map((i) => (
           <Card key={i.name}>
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><i.icon size={16} className="text-brand" /> {i.name}</div>
             <p className="text-sm text-muted">{i.text}</p>
-            <div className="mt-3"><Badge>Phase {i.phase}</Badge></div>
+            <div className="mt-3"><Badge>{i.phase === 3 ? "Waiting for account" : `Phase ${i.phase}`}</Badge></div>
           </Card>
         ))}
       </div>

@@ -75,3 +75,27 @@ export function bookingConfirmationEmail(p: { name: string; title: string; when:
     text: `Hi ${first},\n\nYour ${p.title} with ${p.hostName} is booked for ${p.when}.\n${p.meetUrl ? `Join with Google Meet: ${p.meetUrl}\n` : ""}\nReschedule or cancel: ${p.manageUrl}`,
   };
 }
+
+export function proposalEmail(p: { contactName: string; senderName: string; title: string; url: string; validUntil: Date }) {
+  const first = p.contactName.split(" ")[0];
+  const until = new Intl.DateTimeFormat("en-ZA", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(p.validUntil);
+  return {
+    subject: `Your proposal from Outset: ${p.title}`,
+    html: layout(
+      `<p>Hi ${esc(first!)},</p><p>Thank you for your time. Your proposal is ready. You can review it, accept it online and pay securely in a few minutes.</p>${button(p.url, "View your proposal")}<p>This proposal is valid until ${esc(until)}.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`,
+    ),
+    text: `Hi ${first},\n\nThank you for your time. Your proposal is ready. You can review it, accept it online and pay securely: ${p.url}\n\nValid until ${until}.\n\nKind regards,\n${p.senderName}`,
+  };
+}
+
+export function welcomeEmail(p: { contactName: string; senderName: string; message: string; services: string[]; ownerName: string }) {
+  const first = p.contactName.split(" ")[0];
+  const list = p.services.map((s) => `<li>${esc(s)}</li>`).join("");
+  return {
+    subject: "Welcome to Outset!",
+    html: layout(
+      `<p>Hi ${esc(first!)},</p>${p.message.split(/\n\n+/).map((para) => `<p>${esc(para).replace(/\n/g, "<br>")}</p>`).join("")}<p><strong>Your services</strong></p><ul>${list}</ul><p>Your main contact is <strong>${esc(p.ownerName)}</strong>. We'll be in touch shortly with the information we need from you to get started.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`,
+    ),
+    text: `Hi ${first},\n\n${p.message}\n\nYour services:\n${p.services.map((s) => `- ${s}`).join("\n")}\n\nYour main contact is ${p.ownerName}. We'll be in touch shortly with the information we need from you to get started.\n\nKind regards,\n${p.senderName}`,
+  };
+}

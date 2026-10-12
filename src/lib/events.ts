@@ -13,6 +13,7 @@ export type EventType =
   | "task.completed"
   | "proposal.sent"
   | "proposal.signed"
+  | "proposal.accepted"
   | "payment.succeeded"
   | "client.created"
   | "onboarding.stageChanged";

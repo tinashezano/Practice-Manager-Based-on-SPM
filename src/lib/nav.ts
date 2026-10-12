@@ -1,7 +1,7 @@
 import {
   BarChart3, Bell, BookOpen, Briefcase, CalendarClock, CalendarDays, ClipboardCheck, Clock,
   FileSignature, FolderKanban, GraduationCap, Handshake, Home, KanbanSquare, Layers, ListChecks,
-  Package, Plug, Radar, Users, UserCog, Workflow, type LucideIcon,
+  Package, Plug, Radar, Receipt, Users, UserCog, Workflow, type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@/lib/permissions";
 
@@ -77,7 +77,8 @@ export const NAV: NavSection[] = [
     items: [
       { label: "Team & Roles", href: "/settings/team", icon: UserCog, permission: "team.manage", phase: 0, description: "Add staff, set roles and capacity." },
       { label: "Automations", href: "/settings/automations", icon: Workflow, permission: "settings.manage", phase: 2, description: "The workflow rules that create records, tasks and emails automatically." },
-      { label: "Integrations", href: "/settings/integrations", icon: Plug, permission: "settings.manage", phase: 3, description: "Google Workspace, DocuSign, Paystack and QuickBooks connections." },
+      { label: "Proposals & Billing", href: "/settings/billing", icon: Receipt, permission: "settings.manage", phase: 3, description: "Firm details, VAT, proposal terms, welcome pack and Paystack." },
+      { label: "Integrations", href: "/settings/integrations", icon: Plug, permission: "settings.manage", phase: 2, description: "Google Workspace, DocuSign, Paystack and QuickBooks connections." },
     ],
   },
 ];
