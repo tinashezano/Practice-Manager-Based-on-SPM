@@ -35,10 +35,15 @@ export async function addStaff(_: ActionState, formData: FormData): Promise<Acti
   return { ok: `${user.name} added. They can now sign in with Google.` };
 }
 
+const rand = z.preprocess((v) => (v === "" || v == null ? 0 : v), z.coerce.number().min(0).max(100_000)).transform((r) => Math.round(r * 100));
+
 const updateSchema = z.object({
   userId: z.string(),
   role: z.nativeEnum(Role),
   weeklyCapacityHours: z.coerce.number().int().min(0).max(80),
+  billRate: rand,
+  costRate: rand,
+  billableTargetPercent: z.coerce.number().int().min(0).max(100),
   active: z.enum(["true", "false"]).transform((v) => v === "true"),
 });
 
@@ -58,7 +63,14 @@ export async function updateStaff(formData: FormData) {
 
   await db.user.update({
     where: { id: target.id },
-    data: { role: data.role, weeklyCapacityHours: data.weeklyCapacityHours, active: data.active },
+    data: {
+      role: data.role,
+      weeklyCapacityHours: data.weeklyCapacityHours,
+      active: data.active,
+      billRateCents: data.billRate,
+      costRateCents: data.costRate,
+      billableTargetPercent: data.billableTargetPercent,
+    },
   });
   await emitEvent("user.updated", { userId: target.id, role: data.role, active: data.active }, { actorId: actor.id });
   revalidatePath("/settings/team");

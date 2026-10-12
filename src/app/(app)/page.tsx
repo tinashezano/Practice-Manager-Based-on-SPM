@@ -3,7 +3,8 @@ import { ArrowRight, GraduationCap } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { DueDate, StatusBadge } from "@/components/tasks/task-bits";
 import { Card, PageHeader, StatCard } from "@/components/ui";
-import { addDays, parseISODate, todayISO } from "@/lib/dates";
+import { addDays, parseISODate, startOfWeek, todayISO } from "@/lib/dates";
+import { formatMinutes } from "@/lib/time-format";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { taskHome } from "@/lib/task-meta";
@@ -23,13 +24,15 @@ export default async function MyDashboard({ searchParams }: { searchParams: Prom
   const mine = { assigneeId: user.id, status: { not: "DONE" as const } };
 
   const enrollment = await db.enrollment.findFirst({ where: { userId: user.id, status: "ACTIVE" }, include: { programme: { select: { name: true } }, steps: { select: { completedAt: true } } } });
-  const [dueToday, overdueCount, reviewCount, openCount, focus, reviews] = await Promise.all([
+  const weekStart = parseISODate(startOfWeek(todayISO()))!;
+  const [dueToday, overdueCount, reviewCount, openCount, focus, reviews, logged] = await Promise.all([
     db.task.count({ where: { ...mine, dueDate: today } }),
     db.task.count({ where: { ...mine, dueDate: { lt: today } } }),
     db.task.count({ where: { reviewerId: user.id, status: "IN_REVIEW" } }),
     db.task.count({ where: mine }),
     db.task.findMany({ where: { ...mine, dueDate: { lte: weekEnd } }, include: taskInclude, orderBy: [{ dueDate: "asc" }, { priority: "desc" }], take: 15 }),
     db.task.findMany({ where: { reviewerId: user.id, status: "IN_REVIEW" }, include: taskInclude, orderBy: { dueDate: "asc" }, take: 10 }),
+    db.timeEntry.aggregate({ where: { userId: user.id, date: { gte: weekStart } }, _sum: { minutes: true } }),
   ]);
 
   const row = (t: (typeof focus)[number]) => (
@@ -60,11 +63,12 @@ export default async function MyDashboard({ searchParams }: { searchParams: Prom
         </Link>
       )}
 
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard label="Due today" value={dueToday} hint="Assigned to you" />
         <StatCard label="Overdue" value={<span className={overdueCount ? "text-danger" : ""}>{overdueCount}</span>} hint="Past due, not done" />
         <StatCard label="Awaiting my review" value={reviewCount} hint="Tasks in review where you're reviewer" />
         <StatCard label="My open tasks" value={openCount} hint="All open tasks assigned to you" />
+        <StatCard label="Logged this week" value={formatMinutes(logged._sum.minutes ?? 0)} hint="From your timesheet" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

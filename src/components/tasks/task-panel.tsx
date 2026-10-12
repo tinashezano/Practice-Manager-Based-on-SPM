@@ -8,7 +8,10 @@ import { useState } from "react";
 import { addComment, attachFiles, deleteTask, removeAttachment, updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
 import { Button, inputClass } from "@/components/ui";
-import { formatDateTime, toISODate } from "@/lib/dates";
+import { formatDate, formatDateTime, toISODate, todayISO } from "@/lib/dates";
+import { formatMinutes } from "@/lib/time-format";
+import { TaskTimer, type RunningTimer } from "@/components/timer";
+import { logTimeAction } from "@/app/(app)/time/actions";
 import { ACCEPT_ATTR, formatBytes } from "@/lib/file-meta";
 import type { TaskDetail } from "@/lib/task-queries";
 import { PRIORITIES, PRIORITY_META, RECURRENCE_LABELS, STATUS_META, TASK_STATUSES, taskHome } from "@/lib/task-meta";
@@ -35,6 +38,8 @@ export function TaskPanel({
   staff,
   projects,
   resources,
+  running,
+  loggedMinutes,
   canEdit,
   canDelete,
 }: {
@@ -42,6 +47,8 @@ export function TaskPanel({
   staff: Option[];
   projects: Option[];
   resources: Option[];
+  running: RunningTimer;
+  loggedMinutes: number;
   canEdit: boolean;
   canDelete: boolean;
 }) {
@@ -49,6 +56,7 @@ export function TaskPanel({
   const { hrefWith } = useParamLink();
   const { run, pending, toast } = useAction();
   const [comment, setComment] = useState("");
+  const [logged, setLogged] = useState(0);
   const save = (patch: Parameters<typeof updateTask>[1]) => run(() => updateTask(task.id, patch));
   // Re-mount uncontrolled inputs whenever the task changes on the server.
   const k = `${task.id}-${task.updatedAt.toISOString()}`;
@@ -194,6 +202,41 @@ export function TaskPanel({
             </div>
           </div>
         )}
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">Time · {formatMinutes(loggedMinutes)} logged{task.estimateMinutes ? ` of ${formatMinutes(task.estimateMinutes)} estimated` : ""}</span>
+          </div>
+          {task.estimateMinutes ? (
+            <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-background">
+              <div className={clsx("h-full", loggedMinutes > task.estimateMinutes ? "bg-danger" : "bg-brand")} style={{ width: `${Math.min(100, (loggedMinutes / task.estimateMinutes) * 100)}%` }} />
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <TaskTimer taskId={task.id} running={running} />
+            <form
+              action={(fd) => run(() => logTimeAction({ taskId: task.id, clientId: null, date: String(fd.get("date")), duration: String(fd.get("duration")), description: String(fd.get("note") ?? "") || null }), () => setLogged((n) => n + 1))}
+              key={`log-${logged}`}
+              className="flex items-center gap-1.5"
+            >
+              <input name="duration" required placeholder="1h30" className={`${inputClass} w-20 py-1.5`} aria-label="Time spent" />
+              <input name="date" type="date" defaultValue={todayISO()} className={`${inputClass} w-36 py-1.5`} aria-label="Date" />
+              <input name="note" placeholder="Note" className={`${inputClass} w-28 py-1.5`} aria-label="Note" />
+              <Button variant="secondary" disabled={pending}>Log</Button>
+            </form>
+          </div>
+          {task.timeEntries.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-muted">
+              {task.timeEntries.slice(0, 5).map((e) => (
+                <li key={e.id} className="flex gap-2">
+                  <span className="w-20">{formatDate(e.date, { day: "numeric", month: "short" })}</span>
+                  <span className="w-16 font-medium text-foreground">{formatMinutes(e.minutes)}</span>
+                  <span className="truncate">{e.user.name}{e.description && ` · ${e.description}`}{!e.billable && " · non-billable"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Attachments ({task.attachments.length})</div>

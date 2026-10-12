@@ -14,16 +14,20 @@ enum Role {
 }
 
 model User {
-  id                  String    @id @default(cuid())
-  email               String    @unique
-  name                String
-  role                Role      @default(BOOKKEEPER)
-  active              Boolean   @default(true)
-  image               String?
-  weeklyCapacityHours Int       @default(40)
-  lastLoginAt         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  name                  String
+  role                  Role      @default(BOOKKEEPER)
+  active                Boolean   @default(true)
+  image                 String?
+  weeklyCapacityHours   Int       @default(40)
+  // Hourly rates in cents (excl. VAT) and the share of hours that should be billable.
+  billRateCents         Int       @default(0)
+  costRateCents         Int       @default(0)
+  billableTargetPercent Int       @default(80)
+  lastLoginAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   ownedClients   Client[]          @relation("ClientOwner")
   ownedProjects  Project[]         @relation("ProjectOwner")
@@ -37,6 +41,8 @@ model User {
   resourceReads  ResourceRead[]
   enrollments    Enrollment[]      @relation("Enrollee")
   mentoring      Enrollment[]      @relation("Mentor")
+  timeEntries    TimeEntry[]
+  leave          Leave[]
   bookingLinks   BookingLink[]
   bookings       Booking[]
   google         GoogleConnection?
@@ -102,6 +108,7 @@ model Client {
   proposals     Proposal[]
   subscriptions Subscription[]
   onboardings   Onboarding[]
+  timeEntries   TimeEntry[]
 
   @@index([status])
 }
@@ -209,6 +216,7 @@ model Task {
   resourceId     String?
   resource       Resource?        @relation(fields: [resourceId], references: [id], onDelete: SetNull)
   enrollmentStep EnrollmentStep?
+  timeEntries    TimeEntry[]
 
   @@index([clientId])
   @@index([dealId])
@@ -915,4 +923,54 @@ model EnrollmentStep {
   task         Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
   completedAt  DateTime?
   position     Int            @default(0)
+}
+
+// Time logged by staff. A running timer is an entry with running = true.
+model TimeEntry {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId        String?
+  task          Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  clientId      String?
+  client        Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  date          DateTime  @db.Date
+  minutes       Int       @default(0)
+  billable      Boolean   @default(true)
+  description   String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  running       Boolean   @default(false)
+  // Rates copied when the entry is made, so later rate changes don't rewrite history.
+  billRateCents Int       @default(0)
+  costRateCents Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, date])
+  @@index([clientId, date])
+  @@index([taskId])
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  FAMILY
+  STUDY
+  OTHER
+}
+
+model Leave {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        LeaveType @default(ANNUAL)
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  halfDay     Boolean   @default(false)
+  note        String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, startDate])
 }

@@ -7,6 +7,7 @@ import { useState } from "react";
 import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { Logo } from "@/components/logo";
+import { SidebarTimer, type RunningTimer } from "@/components/timer";
 import { initials } from "@/components/ui";
 import { NAV } from "@/lib/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
@@ -15,9 +16,10 @@ type Props = {
   user: { name: string; email: string; role: Role };
   signOutAction: () => Promise<void>;
   unreadCount: number;
+  timer: RunningTimer;
 };
 
-export function Sidebar({ user, signOutAction, unreadCount }: Props) {
+export function Sidebar({ user, signOutAction, unreadCount, timer }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
@@ -106,6 +108,8 @@ export function Sidebar({ user, signOutAction, unreadCount }: Props) {
           );
         })}
       </nav>
+
+      <SidebarTimer timer={timer} collapsed={collapsed} />
 
       <div className="flex items-center gap-2.5 border-t border-border px-4 py-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">

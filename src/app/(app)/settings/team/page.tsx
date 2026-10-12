@@ -8,7 +8,7 @@ import { updateStaff } from "./actions";
 export const metadata = { title: "Team & Roles" };
 
 const ROLE_SUMMARY = [
-  { role: "Director", text: "Everything, including firm financials, team management, pricing and integrations." },
+  { role: "Director", text: "Everything, including firm financials, team management, rates, pricing and integrations." },
   { role: "Accountant", text: "Leads, proposals, clients, onboarding, all tasks, SOP editing and team workload. No firm financials or settings." },
   { role: "Bookkeeper", text: "Their own and assigned tasks, client details and SOPs (read-only). No deals, pricing or financials." },
 ];
@@ -19,7 +19,7 @@ export default async function TeamPage() {
 
   return (
     <>
-      <PageHeader title="Team & Roles" subtitle="Who can sign in to Outset PM, what they can see, and their weekly capacity." />
+      <PageHeader title="Team & Roles" subtitle="Who can sign in, what they can see, their weekly hours, hourly billing and cost rates (excl. VAT) and billable target. Rates feed WIP, margins and utilisation." />
 
       <Card className="mb-6">
         <h2 className="mb-3 text-sm font-semibold">Add a team member</h2>
@@ -32,7 +32,7 @@ export default async function TeamPage() {
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
               <th className="px-5 py-3 font-medium">Name</th>
               <th className="px-3 py-3 font-medium">Role</th>
-              <th className="px-3 py-3 font-medium">Hours / week</th>
+              <th className="px-3 py-3 font-medium">Hours / week · R/h bill · R/h cost · target</th>
               <th className="px-3 py-3 font-medium">Status</th>
               <th className="px-3 py-3 font-medium">Last sign-in</th>
               <th className="px-5 py-3" />
@@ -71,6 +71,9 @@ export default async function TeamPage() {
                         defaultValue={u.weeklyCapacityHours}
                         className={`${inputBase} w-24`}
                       />
+                      <input name="billRate" type="number" min={0} step={50} defaultValue={u.billRateCents / 100} className={`${inputBase} w-24`} title="Hourly billing rate (R, excl. VAT)" aria-label="Billing rate" />
+                      <input name="costRate" type="number" min={0} step={10} defaultValue={u.costRateCents / 100} className={`${inputBase} w-24`} title="Hourly cost to the firm (R)" aria-label="Cost rate" />
+                      <input name="billableTargetPercent" type="number" min={0} max={100} defaultValue={u.billableTargetPercent} className={`${inputBase} w-16`} title="Billable target %" aria-label="Billable target %" />
                       <select name="active" defaultValue={String(u.active)} disabled={self} className={`${inputBase} w-28`}>
                         <option value="true">Active</option>
                         <option value="false">Inactive</option>

@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import type { requireUser } from "@/lib/session";
 import { canEditTask } from "@/lib/task-access";
 import { getTaskDetail, listTasks, taskListInclude, taskWhere, type TaskFilters } from "@/lib/task-queries";
+import { runningTimer } from "@/lib/time";
 import { NewTaskButton } from "./new-task-button";
 import { TaskBoard } from "./task-board";
 import { TaskCalendar } from "./task-calendar";
@@ -83,6 +84,8 @@ export async function TaskWorkspace({
   let panel: React.ReactNode = null;
   if (detail) {
     const manager = can(user.role, "tasks.manageAll");
+    const running = await runningTimer(user.id);
+    const loggedMinutes = (await db.timeEntry.aggregate({ where: { taskId: detail.id, running: false }, _sum: { minutes: true } }))._sum.minutes ?? 0;
     const canDelete = manager || detail.createdById === user.id || (!!detail.parent && (await canEditTask(user, detail.parent.id)));
     panel = (
       <TaskPanel
@@ -90,6 +93,8 @@ export async function TaskWorkspace({
         staff={staff}
         projects={projects.filter((p) => p.clientId === detail.clientId)}
         resources={resources.map((r) => ({ id: r.id, name: r.title }))}
+        running={running?.startedAt ? { startedAt: running.startedAt.toISOString(), taskId: running.taskId, label: running.task?.title ?? "General time" } : null}
+        loggedMinutes={loggedMinutes}
         canEdit={await canEditTask(user, detail.id)}
         canDelete={canDelete}
       />
