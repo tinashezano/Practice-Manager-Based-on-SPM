@@ -21,16 +21,20 @@ Without Google OAuth credentials you can still sign in locally: set
 `DEV_LOGIN_ENABLED=true` in `.env` and use the "Development login" box with a
 seeded staff email. This login never works in production.
 
-Checks: `npm run lint`, `npm run typecheck`, `npm run build`.
+Checks: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
 
 ## Google sign-in setup (one-off)
 
 1. Google Cloud Console → create a project → **APIs & Services → OAuth consent screen**:
    choose **Internal** (only your Workspace users).
 2. **Credentials → Create OAuth client ID → Web application**. Authorised redirect URIs:
-   - `http://localhost:3000/api/auth/callback/google`
-   - `https://<your-railway-domain>/api/auth/callback/google`
-3. Put the client ID and secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+   - `http://localhost:3000/api/auth/callback/google` and `http://localhost:3000/api/google/callback`
+   - `https://<your-railway-domain>/api/auth/callback/google` and `https://<your-railway-domain>/api/google/callback`
+3. **APIs & Services → Library**: enable **Google Calendar API** and **Gmail API**.
+4. Put the client ID and secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+5. Each staff member who hosts discovery calls or owns leads clicks **Connect Google**
+   (Leads & Deals → Booking Links). That grants Calendar (availability, events with
+   Meet links) and Gmail send (automated emails come from their own mailbox).
 
 Only people added under **Settings → Team & Roles** with an `@ALLOWED_EMAIL_DOMAIN`
 address can sign in.
@@ -48,6 +52,18 @@ address can sign in.
 
 `railway.json` builds with `npm run build`. On each deploy it runs database migrations
 and the seed (safe to repeat) before starting, and uses `/api/health` as the healthcheck.
+
+## Automations
+
+Things that happen (new lead, booking, task completed, stage change) are recorded
+as events. A small job queue in Postgres runs the automations, retrying failures.
+The worker runs inside the web server (`src/instrumentation.ts`), so Railway needs
+only one service. Switch rules on or off and see recent runs and the email outbox
+under **Settings → Automations**.
+
+Public pages (no login): `/book/<link>` (booking), `/book/manage/<token>`
+(lead's reschedule/cancel) and `/enquiry` (website form; can be embedded with
+`?embed=1`).
 
 ## Roles
 

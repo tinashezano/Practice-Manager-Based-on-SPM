@@ -8,7 +8,7 @@ import { useOptimistic } from "react";
 import { updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
 import type { TaskRow } from "@/lib/task-queries";
-import { STATUS_META, TASK_STATUSES } from "@/lib/task-meta";
+import { STATUS_META, TASK_STATUSES, taskHome } from "@/lib/task-meta";
 import { CommentCount, DueDate, PriorityBadge, StatusDot, SubtaskProgress } from "./task-bits";
 import { useAction } from "./use-action";
 import { useParamLink } from "./use-task-link";
@@ -25,7 +25,7 @@ function Card({ task }: { task: TaskRow }) {
       className={clsx("cursor-grab rounded-lg border border-border bg-surface p-3 shadow-sm", isDragging && "z-10 opacity-80 shadow-lg")}
     >
       <div className="mb-1 truncate text-[11px] font-medium text-muted">
-        {task.client.name}{task.project && ` · ${task.project.name}`}
+        {taskHome(task).name}{task.project && ` · ${task.project.name}`}
       </div>
       <Link href={hrefWith({ task: task.id })} scroll={false} className="block text-sm font-medium hover:text-brand">
         {task.title}

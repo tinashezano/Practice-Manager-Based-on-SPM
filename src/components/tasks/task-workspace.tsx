@@ -24,19 +24,23 @@ export async function TaskWorkspace({
   user,
   searchParams,
   clientId,
+  dealId,
   header,
 }: {
   user: Awaited<ReturnType<typeof requireUser>>;
   searchParams: TaskSearchParams;
   /** Lock the workspace to a single client. */
   clientId?: string;
+  /** Lock the workspace to a single lead (deal). */
+  dealId?: string;
   header?: (newTaskButton: React.ReactNode) => React.ReactNode;
 }) {
   const view = str(searchParams.view) ?? "list";
   const assigneeParam = str(searchParams.assignee);
   const status = (str(searchParams.status) ?? "open") as TaskFilters["status"];
   const filters: TaskFilters = {
-    clientId: clientId ?? str(searchParams.client),
+    clientId: dealId ? undefined : (clientId ?? str(searchParams.client)),
+    dealId,
     projectId: str(searchParams.project),
     assigneeId: assigneeParam === "me" ? user.id : assigneeParam,
     status,
@@ -70,7 +74,7 @@ export async function TaskWorkspace({
     body = <TaskTimeline tasks={tasks} from={from} undated={undated} />;
   } else {
     const tasks = await listTasks(filters);
-    body = view === "board" ? <TaskBoard tasks={tasks} showDone={status !== "open"} /> : <TaskList tasks={tasks} showClients={!clientId} />;
+    body = view === "board" ? <TaskBoard tasks={tasks} showDone={status !== "open"} /> : <TaskList tasks={tasks} showClients={!clientId && !dealId} emptyText={dealId ? "No tasks for this lead yet." : undefined} />;
   }
 
   const taskId = str(searchParams.task);
@@ -97,7 +101,7 @@ export async function TaskWorkspace({
   return (
     <>
       {header?.(newTask)}
-      <TaskToolbar clients={clients} staff={staff} showClientFilter={!clientId} />
+      <TaskToolbar clients={clients} staff={staff} showClientFilter={!clientId && !dealId} />
       {body}
       {panel}
     </>

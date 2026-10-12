@@ -21,9 +21,14 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
-      if (pathname === "/login" || pathname.startsWith("/api/auth") || pathname === "/api/health") {
-        return true;
-      }
+      // Public: sign-in, health check, lead-facing booking pages and the enquiry form.
+      const isPublic =
+        pathname === "/login" ||
+        pathname.startsWith("/api/auth") ||
+        pathname === "/api/health" ||
+        pathname === "/enquiry" ||
+        pathname.startsWith("/book/");
+      if (isPublic) return true;
       return !!auth?.user;
     },
   },

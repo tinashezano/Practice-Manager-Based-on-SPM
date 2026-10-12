@@ -25,13 +25,17 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  ownedClients  Client[]       @relation("ClientOwner")
-  ownedProjects Project[]      @relation("ProjectOwner")
-  assignedTasks Task[]         @relation("TaskAssignee")
-  reviewTasks   Task[]         @relation("TaskReviewer")
-  createdTasks  Task[]         @relation("TaskCreator")
+  ownedClients  Client[]          @relation("ClientOwner")
+  ownedProjects Project[]         @relation("ProjectOwner")
+  assignedTasks Task[]            @relation("TaskAssignee")
+  reviewTasks   Task[]            @relation("TaskReviewer")
+  createdTasks  Task[]            @relation("TaskCreator")
   comments      TaskComment[]
   notifications Notification[]
+  ownedDeals    Deal[]            @relation("DealOwner")
+  bookingLinks  BookingLink[]
+  bookings      Booking[]
+  google        GoogleConnection?
 }
 
 // Every automation-relevant thing that happens is recorded here first, then
@@ -90,6 +94,7 @@ model Client {
   contacts ClientContact[]
   projects Project[]
   tasks    Task[]
+  deals    Deal[]
 
   @@index([status])
 }
@@ -132,6 +137,15 @@ model Project {
   @@index([clientId])
 }
 
+enum Recurrence {
+  NONE
+  WEEKLY
+  MONTHLY
+  BIMONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -153,9 +167,16 @@ model Task {
   description     String?
   status          TaskStatus @default(TODO)
   priority        Priority   @default(MEDIUM)
-  // Every task belongs to a client; project is optional; parentId makes it a subtask.
-  clientId        String
-  client          Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Every task belongs to a client — or, before they become one, to a lead
+  // (deal). Project is optional; parentId makes it a subtask.
+  clientId        String?
+  client          Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  dealId          String?
+  deal            Deal?      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  // Set on tasks created by an automation (e.g. "deal.discovery_call") so
+  // completing them can trigger the next step.
+  automationKey   String?
+  recurrence      Recurrence @default(NONE)
   projectId       String?
   project         Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
   parentId        String?
@@ -178,6 +199,7 @@ model Task {
   comments TaskComment[]
 
   @@index([clientId])
+  @@index([dealId])
   @@index([projectId])
   @@index([parentId])
   @@index([assigneeId, status])
@@ -233,4 +255,194 @@ model TemplateTask {
   estimateMinutes Int?
   priority        Priority        @default(MEDIUM)
   position        Float           @default(0)
+}
+
+enum DealStage {
+  NEW_LEAD
+  DISCOVERY_BOOKED
+  DISCOVERY_COMPLETED
+  PROPOSAL_REQUIRED
+  PROPOSAL_SENT
+  WON
+  LOST
+}
+
+enum LeadSource {
+  WEBSITE_FORM
+  BOOKING_PAGE
+  REFERRAL
+  MANUAL
+  OTHER
+}
+
+model Deal {
+  id                String      @id @default(cuid())
+  // Prospective client: a company or an individual.
+  name              String
+  contactName       String
+  email             String?
+  phone             String?
+  entityType        EntityType?
+  servicesInterest  String?
+  notes             String?
+  source            LeadSource  @default(MANUAL)
+  stage             DealStage   @default(NEW_LEAD)
+  stageChangedAt    DateTime    @default(now())
+  valueCents        Int         @default(0)
+  // Win likelihood in %, defaults per stage when null.
+  probability       Int?
+  expectedCloseDate DateTime?   @db.Date
+  lostReason        String?
+  ownerId           String?
+  owner             User?       @relation("DealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  clientId          String?
+  client            Client?     @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  popiaConsentAt    DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  activities DealActivity[]
+  tasks      Task[]
+  bookings   Booking[]
+  emails     EmailMessage[]
+
+  @@index([stage])
+  @@index([email])
+}
+
+enum ActivityType {
+  NOTE
+  STAGE_CHANGE
+  EMAIL
+  BOOKING
+  TASK
+  SYSTEM
+}
+
+model DealActivity {
+  id        String       @id @default(cuid())
+  dealId    String
+  deal      Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  body      String
+  actorId   String?
+  createdAt DateTime     @default(now())
+
+  @@index([dealId, createdAt])
+}
+
+model BookingLink {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  title           String
+  description     String?
+  durationMinutes Int       @default(30)
+  bufferMinutes   Int       @default(15)
+  minNoticeHours  Int       @default(12)
+  maxDaysAhead    Int       @default(21)
+  // ISO weekdays (1=Mon … 7=Sun) and working hours in firm time, "HH:MM".
+  days            Int[]     @default([1, 2, 3, 4, 5])
+  startTime       String    @default("09:00")
+  endTime         String    @default("16:30")
+  // Used for the automatic email to new leads.
+  isDefault       Boolean   @default(false)
+  active          Boolean   @default(true)
+  hostId          String
+  host            User      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  bookings        Booking[]
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  bookingLinkId String
+  bookingLink   BookingLink   @relation(fields: [bookingLinkId], references: [id], onDelete: Cascade)
+  hostId        String
+  host          User          @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  dealId        String?
+  deal          Deal?         @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  startsAt      DateTime
+  endsAt        DateTime
+  status        BookingStatus @default(CONFIRMED)
+  name          String
+  email         String
+  phone         String?
+  company       String?
+  message       String?
+  googleEventId String?
+  meetUrl       String?
+  // Secret for the lead's reschedule/cancel link.
+  manageToken   String        @unique
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([hostId, startsAt])
+}
+
+// A staff member's Google Calendar + Gmail authorisation (separate from sign-in).
+model GoogleConnection {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail           String
+  // AES-256-GCM encrypted with a key derived from AUTH_SECRET.
+  refreshTokenEncrypted String
+  scopes                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  SKIPPED
+  FAILED
+}
+
+// Outbox: every automated email is recorded here, then sent by the worker.
+model EmailMessage {
+  id        String      @id @default(cuid())
+  to        String
+  subject   String
+  html      String
+  text      String
+  senderId  String?
+  dealId    String?
+  deal      Deal?       @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  status    EmailStatus @default(QUEUED)
+  error     String?
+  sentAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([status])
+}
+
+// Minimal Postgres-backed job queue (claimed with FOR UPDATE SKIP LOCKED).
+model Job {
+  id        String    @id @default(cuid())
+  name      String
+  payload   Json
+  runAt     DateTime  @default(now())
+  attempts  Int       @default(0)
+  lockedAt  DateTime?
+  doneAt    DateTime?
+  lastError String?
+  createdAt DateTime  @default(now())
+
+  @@index([doneAt, runAt])
+}
+
+// On/off switches and numbers for each automation rule.
+model AutomationSetting {
+  key       String   @id
+  enabled   Boolean  @default(true)
+  config    Json     @default("{}")
+  updatedAt DateTime @updatedAt
 }

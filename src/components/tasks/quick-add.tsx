@@ -7,12 +7,14 @@ import { useAction } from "./use-action";
 
 export function QuickAdd({
   clientId,
+  dealId,
   projectId,
   parentId,
   label = "Add task",
   indent = 0,
 }: {
   clientId?: string;
+  dealId?: string;
   projectId?: string | null;
   parentId?: string;
   label?: string;
@@ -27,7 +29,7 @@ export function QuickAdd({
     const t = title.trim();
     if (!t) return setOpen(false);
     run(
-      () => createTask({ title: t, clientId, projectId: projectId ?? null, parentId }),
+      () => createTask({ title: t, clientId, dealId, projectId: projectId ?? null, parentId }),
       () => {
         setTitle("");
         inputRef.current?.focus();

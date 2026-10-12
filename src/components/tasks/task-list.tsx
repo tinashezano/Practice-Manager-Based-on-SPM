@@ -7,20 +7,23 @@ import { useState } from "react";
 import { updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
 import type { TaskRow } from "@/lib/task-queries";
+import { taskHome } from "@/lib/task-meta";
+import { Badge } from "@/components/ui";
 import { CommentCount, DueDate, PriorityBadge, StatusBadge, SubtaskProgress } from "./task-bits";
 import { QuickAdd } from "./quick-add";
 import { useAction } from "./use-action";
 import { useParamLink } from "./use-task-link";
 
-type Group = { key: string; clientId: string; clientName: string; projects: { id: string | null; name: string; tasks: TaskRow[] }[] };
+type Group = { key: string; clientId: string | null; dealId: string | null; name: string; href: string; isLead: boolean; projects: { id: string | null; name: string; tasks: TaskRow[] }[] };
 
 function groupTasks(tasks: TaskRow[]): Group[] {
   const clients = new Map<string, Group>();
   for (const t of tasks) {
-    let g = clients.get(t.clientId);
+    const home = taskHome(t);
+    let g = clients.get(home.key);
     if (!g) {
-      g = { key: t.clientId, clientId: t.clientId, clientName: t.client.name, projects: [] };
-      clients.set(t.clientId, g);
+      g = { key: home.key, clientId: t.clientId, dealId: t.dealId, name: home.name, href: home.href, isLead: home.isLead, projects: [] };
+      clients.set(home.key, g);
     }
     const pid = t.project?.id ?? null;
     let p = g.projects.find((x) => x.id === pid);
@@ -123,8 +126,9 @@ export function TaskList({ tasks, showClients = true, emptyText = "No tasks matc
                 className="flex w-full items-center gap-2 border-b border-border bg-background/60 px-3 py-2.5 text-left"
               >
                 {collapsed[g.key] ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                <Link href={`/clients/${g.clientId}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-brand">
-                  {g.clientName}
+                {g.isLead && <Badge tone="warning">Lead</Badge>}
+                <Link href={g.href} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-brand">
+                  {g.name}
                 </Link>
                 <span className="text-xs text-muted">{open} open</span>
               </button>
@@ -136,7 +140,7 @@ export function TaskList({ tasks, showClients = true, emptyText = "No tasks matc
                     <FolderKanban size={13} /> {p.name}
                   </div>
                   {p.tasks.map((t) => <TaskWithSubtasks key={t.id} task={t} />)}
-                  <div className="border-b border-border px-3 last:border-0"><QuickAdd clientId={g.clientId} projectId={p.id} indent={22} /></div>
+                  <div className="border-b border-border px-3 last:border-0"><QuickAdd clientId={g.clientId ?? undefined} dealId={g.dealId ?? undefined} projectId={p.id} indent={22} /></div>
                 </div>
               ))}
           </section>

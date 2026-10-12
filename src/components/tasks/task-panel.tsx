@@ -10,7 +10,7 @@ import { Avatar } from "@/components/avatar";
 import { Button, inputClass } from "@/components/ui";
 import { formatDateTime, toISODate } from "@/lib/dates";
 import type { TaskDetail } from "@/lib/task-queries";
-import { PRIORITIES, PRIORITY_META, STATUS_META, TASK_STATUSES } from "@/lib/task-meta";
+import { PRIORITIES, PRIORITY_META, RECURRENCE_LABELS, STATUS_META, TASK_STATUSES, taskHome } from "@/lib/task-meta";
 import { DueDate, StatusBadge } from "./task-bits";
 import { QuickAdd } from "./quick-add";
 import { useAction } from "./use-action";
@@ -55,7 +55,8 @@ export function TaskPanel({
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-2xl">
       {toast}
       <div className="flex items-center gap-1 border-b border-border px-5 py-3 text-xs text-muted">
-        <Link href={`/clients/${task.client.id}`} className="hover:text-brand">{task.client.name}</Link>
+        {taskHome(task).isLead && <span className="rounded bg-amber-50 px-1.5 text-warning">Lead</span>}
+        <Link href={taskHome(task).href} className="hover:text-brand">{taskHome(task).name}</Link>
         {task.project && (<><ChevronRight size={12} /><span>{task.project.name}</span></>)}
         {task.parent && (<><ChevronRight size={12} /><Link href={hrefWith({ task: task.parent.id })} scroll={false} className="truncate hover:text-brand">{task.parent.title}</Link></>)}
         <Link href={hrefWith({ task: null })} scroll={false} className="ml-auto rounded p-1 hover:bg-background" aria-label="Close"><X size={16} /></Link>
@@ -117,6 +118,13 @@ export function TaskPanel({
             />
           </Field>
           {!task.parent && (
+            <Field label="Repeats">
+              <select defaultValue={task.recurrence} disabled={disabled} onChange={(e) => save({ recurrence: e.target.value as TaskDetail["recurrence"] })} className={fieldClass}>
+                {Object.entries(RECURRENCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Field>
+          )}
+          {!task.parent && task.clientId && (
             <Field label="Project">
               <select defaultValue={task.projectId ?? ""} disabled={disabled} onChange={(e) => save({ projectId: e.target.value || null })} className={fieldClass}>
                 <option value="">General (no project)</option>

@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { addDays, daysBetween, formatDate, TIMELINE_DAYS, toISODate, todayISO } from "@/lib/dates";
 import type { TaskRow } from "@/lib/task-queries";
-import { STATUS_META } from "@/lib/task-meta";
+import { STATUS_META, taskHome } from "@/lib/task-meta";
 import { useParamLink } from "./use-task-link";
 
 
@@ -28,9 +28,10 @@ export function TaskTimeline({ tasks, from, undated }: { tasks: TaskRow[]; from:
   const groups = new Map<string, { name: string; tasks: TaskRow[] }>();
   for (const t of tasks) {
     if (!t.startDate && !t.dueDate) continue;
-    const g = groups.get(t.clientId) ?? { name: t.client.name, tasks: [] };
+    const home = taskHome(t);
+    const g = groups.get(home.key) ?? { name: home.name, tasks: [] };
     g.tasks.push(t);
-    groups.set(t.clientId, g);
+    groups.set(home.key, g);
   }
 
   const width = TIMELINE_DAYS * DAY_W;

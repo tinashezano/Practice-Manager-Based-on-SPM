@@ -8,6 +8,7 @@ import { updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
 import { addDays, formatDate, monthGridRange, toISODate, todayISO } from "@/lib/dates";
 import type { TaskRow } from "@/lib/task-queries";
+import { taskHome } from "@/lib/task-meta";
 import { StatusDot } from "./task-bits";
 import { useAction } from "./use-action";
 import { useParamLink } from "./use-task-link";
@@ -54,7 +55,7 @@ export function TaskCalendar({ tasks, unscheduled, month }: { tasks: TaskRow[]; 
       scroll={false}
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/task", t.id)}
-      title={`${t.client.name} · ${t.title}`}
+      title={`${taskHome(t).name} · ${t.title}`}
       className={clsx("flex items-center gap-1.5 truncate rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] hover:border-brand", t.status === "DONE" && "text-muted line-through")}
     >
       <StatusDot status={t.status} />

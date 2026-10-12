@@ -44,7 +44,7 @@ team works from task lists and dashboards and doesn't have to chase status by ha
 | Database | **PostgreSQL on Railway** | Relational data; one firm, so single-tenant |
 | ORM | **Prisma** (or Drizzle) | Typed schema and migrations |
 | Auth | **Auth.js with Google sign-in**, limited to the firm's Workspace domain | Staff log in with their work Google accounts; only staff a Director has added can get in |
-| Background jobs | **pg-boss** (job queue stored in Postgres) in a Railway worker service | Event-driven automations, retries, delays ("remind in 3 days"), no extra service to pay for |
+| Background jobs | **Job queue in Postgres** (`FOR UPDATE SKIP LOCKED`), worker runs inside the web service | Event-driven automations, retries, delays ("remind in 3 days"), no extra service to pay for |
 | Email | **Gmail API** (sends from your Workspace mailbox) + React Email templates | Booking links, welcome pack, info requests; sent mail shows in Gmail |
 | File storage | S3-compatible bucket (Cloudflare R2 or Railway volume) | Client documents, signed PDFs, SOP attachments |
 | E-signature | **DocuSign eSignature REST API** (JWT grant) | Proposals and engagement letters |
@@ -328,7 +328,7 @@ proposal tasks appear in the task views. They carry over to the client on conver
 |---|---|---|
 | **0. Foundation** ✅ | Next.js + Postgres + Google Workspace login, roles, Team & Roles screen, app shell, event log, Railway config | Staff can log in and see the shell |
 | **1. Clients and Task Management** ✅ | Clients and contacts, projects from job templates, tasks + subtasks, List/Board/Calendar/Timeline views, comments with @mentions, in-app notifications, My Dashboard. *File attachments move to Phase 4 (with file storage); recurring tasks move to Phase 2 (with the background worker).* | The team can run daily work in the app (most value, earliest) |
-| **2. Leads, Pipeline and Booking** (2–3 wks) | CRM, deal Kanban, lead capture form, Google Calendar booking links, background worker, recurring tasks, automations: lead → booking email → discovery task → proposal task | Front of funnel automated |
+| **2. Leads, Pipeline and Booking** ✅ | CRM (deals + activity log), pipeline board, website enquiry form, Google Calendar booking pages with Meet links and reschedule/cancel, Gmail sending via an email outbox, background job worker, recurring tasks, Automations settings page. Automations: lead → booking email (+ follow-up if not booked) → discovery task → proposal task; lost → close tasks; manual "Convert to client" | Front of funnel automated |
 | **3. Proposals, DocuSign and Paystack** (3–4 wks) | Service catalogue and packages, proposal builder, DocuSign embedded send and sign, Paystack checkout and subscriptions, webhooks, "Signed + Paid → Won" automation | Lead turns into a paying client with no manual steps |
 | **4. Onboarding** (2 wks) | Onboarding Kanban, templates, secure per-request upload links (no client login), reminders, welcome pack, notifications | Onboarding runs to a checklist |
 | **5. Resource Hub** (1–2 wks) | SOP library, search, versioning, linking SOPs to task templates, staff onboarding programmes | Knowledge and new-hire training in one place |

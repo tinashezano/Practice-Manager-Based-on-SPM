@@ -19,6 +19,21 @@ async function main() {
     console.log("BOOTSTRAP_DIRECTOR_EMAIL not set — skipping Director.");
   }
 
+  // A default discovery-call booking page hosted by the first Director.
+  const director = await db.user.findFirst({ where: { role: Role.DIRECTOR, active: true }, orderBy: { createdAt: "asc" } });
+  if (director && (await db.bookingLink.count()) === 0) {
+    await db.bookingLink.create({
+      data: {
+        slug: "discovery-call",
+        title: "Discovery Call",
+        description: "A free 30-minute call to understand your business and how Outset can help.",
+        hostId: director.id,
+        isDefault: true,
+      },
+    });
+    console.log("Booking link added: /book/discovery-call");
+  }
+
   // Internal client for the firm's own admin work.
   if (!(await db.client.findFirst({ where: { isInternal: true } }))) {
     await db.client.create({ data: { name: "Outset (Internal)", isInternal: true, entityType: "OTHER" } });

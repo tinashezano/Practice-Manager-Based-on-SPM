@@ -4,6 +4,7 @@ import { parseISODate } from "@/lib/dates";
 
 export type TaskFilters = {
   clientId?: string;
+  dealId?: string;
   projectId?: string;
   /** user id, or undefined for everyone */
   assigneeId?: string;
@@ -17,6 +18,7 @@ export type TaskFilters = {
 export function taskWhere(f: TaskFilters): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = { parentId: null };
   if (f.clientId) where.clientId = f.clientId;
+  if (f.dealId) where.dealId = f.dealId;
   if (f.projectId) where.projectId = f.projectId;
   if (f.assigneeId) where.assigneeId = f.assigneeId;
   if (f.status === "open" || !f.status) where.status = { not: "DONE" };
@@ -34,6 +36,7 @@ const userSelect = { select: { id: true, name: true } } as const;
 
 export const taskListInclude = {
   client: { select: { id: true, name: true, isInternal: true } },
+  deal: { select: { id: true, name: true } },
   project: { select: { id: true, name: true } },
   assignee: userSelect,
   subtasks: {
@@ -49,7 +52,7 @@ export async function listTasks(f: TaskFilters, take = 1000) {
   return db.task.findMany({
     where: taskWhere(f),
     include: taskListInclude,
-    orderBy: [{ client: { name: "asc" } }, { position: "asc" }],
+    orderBy: [{ client: { name: "asc" } }, { deal: { name: "asc" } }, { position: "asc" }],
     take,
   });
 }
@@ -59,6 +62,7 @@ export async function getTaskDetail(id: string) {
     where: { id },
     include: {
       client: { select: { id: true, name: true } },
+      deal: { select: { id: true, name: true } },
       project: { select: { id: true, name: true } },
       parent: { select: { id: true, title: true } },
       assignee: userSelect,

@@ -1,4 +1,4 @@
-import type { EntityType, Priority, ProjectStatus, TaskStatus, ClientStatus } from "@prisma/client";
+import type { ClientStatus, EntityType, Priority, ProjectStatus, Recurrence, TaskStatus } from "@prisma/client";
 
 type Tone = "neutral" | "brand" | "success" | "warning" | "danger";
 
@@ -49,3 +49,21 @@ export function formatEstimate(minutes: number | null | undefined) {
   const m = minutes % 60;
   return h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
 }
+
+type HomeInput = { client: { id: string; name: string } | null; deal?: { id: string; name: string } | null };
+
+/** Where a task "lives": its client, or the lead (deal) it belongs to before it's a client. */
+export function taskHome(t: HomeInput) {
+  if (t.client) return { key: t.client.id, name: t.client.name, href: `/clients/${t.client.id}`, isLead: false };
+  if (t.deal) return { key: `deal:${t.deal.id}`, name: t.deal.name, href: `/deals/${t.deal.id}`, isLead: true };
+  return { key: "none", name: "No client", href: "/tasks", isLead: false };
+}
+
+export const RECURRENCE_LABELS: Record<Recurrence, string> = {
+  NONE: "Doesn't repeat",
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+  BIMONTHLY: "Every 2 months (VAT)",
+  QUARTERLY: "Quarterly",
+  ANNUALLY: "Annually",
+};

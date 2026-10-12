@@ -6,13 +6,14 @@ import { Card, PageHeader, StatCard } from "@/components/ui";
 import { addDays, parseISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
+import { taskHome } from "@/lib/task-meta";
 
 function greeting() {
   const hour = Number(new Intl.DateTimeFormat("en-ZA", { hour: "numeric", hour12: false, timeZone: "Africa/Johannesburg" }).format(new Date()));
   return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
-const taskInclude = { client: { select: { name: true } }, project: { select: { name: true } }, assignee: { select: { id: true, name: true } } } as const;
+const taskInclude = { client: { select: { id: true, name: true } }, deal: { select: { id: true, name: true } }, project: { select: { name: true } }, assignee: { select: { id: true, name: true } } } as const;
 
 export default async function MyDashboard({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
   const user = await requireUser();
@@ -34,7 +35,7 @@ export default async function MyDashboard({ searchParams }: { searchParams: Prom
     <Link key={t.id} href={`/tasks?task=${t.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-background">
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm">{t.title}</div>
-        <div className="truncate text-xs text-muted">{t.client.name}{t.project && ` · ${t.project.name}`}</div>
+        <div className="truncate text-xs text-muted">{taskHome(t).name}{t.project && ` · ${t.project.name}`}</div>
       </div>
       <StatusBadge status={t.status} />
       <span className="w-20 text-right"><DueDate date={t.dueDate} /></span>
