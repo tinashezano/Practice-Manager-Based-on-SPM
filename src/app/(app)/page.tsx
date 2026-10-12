@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, GraduationCap } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { DueDate, StatusBadge } from "@/components/tasks/task-bits";
 import { Card, PageHeader, StatCard } from "@/components/ui";
@@ -22,6 +22,7 @@ export default async function MyDashboard({ searchParams }: { searchParams: Prom
   const weekEnd = parseISODate(addDays(todayISO(), 7))!;
   const mine = { assigneeId: user.id, status: { not: "DONE" as const } };
 
+  const enrollment = await db.enrollment.findFirst({ where: { userId: user.id, status: "ACTIVE" }, include: { programme: { select: { name: true } }, steps: { select: { completedAt: true } } } });
   const [dueToday, overdueCount, reviewCount, openCount, focus, reviews] = await Promise.all([
     db.task.count({ where: { ...mine, dueDate: today } }),
     db.task.count({ where: { ...mine, dueDate: { lt: today } } }),
@@ -47,6 +48,17 @@ export default async function MyDashboard({ searchParams }: { searchParams: Prom
     <>
       <PageHeader title={`${greeting()}, ${user.name.split(" ")[0]}`} subtitle="Your day at a glance." />
       {denied && <p className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-warning">You don&apos;t have access to that page. Ask a Director if you need it.</p>}
+
+      {enrollment && (
+        <Link href={`/resources/staff-onboarding/${enrollment.id}`} className="mb-6 flex items-center gap-4 rounded-xl border border-brand/30 bg-brand-soft/60 px-5 py-4 hover:border-brand">
+          <GraduationCap size={22} className="text-brand" />
+          <div className="flex-1">
+            <div className="text-sm font-semibold">Your onboarding: {enrollment.programme.name}</div>
+            <div className="mt-1.5 h-1.5 max-w-md overflow-hidden rounded-full bg-surface"><div className="h-full bg-success" style={{ width: `${(enrollment.steps.filter((s) => s.completedAt).length / Math.max(1, enrollment.steps.length)) * 100}%` }} /></div>
+          </div>
+          <span className="text-sm text-muted">{enrollment.steps.filter((s) => s.completedAt).length}/{enrollment.steps.length} steps</span>
+        </Link>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Due today" value={dueToday} hint="Assigned to you" />

@@ -1,4 +1,5 @@
 import { PrismaClient, Role } from "@prisma/client";
+import { STARTER_PROGRAMME, STARTER_RESOURCES, STARTER_TEMPLATE_LINKS } from "./starter-resources";
 import { TEMPLATES } from "./templates";
 
 const db = new PrismaClient();
@@ -105,4 +106,32 @@ async function seedServices() {
   console.log("Sample services and packages added (placeholder prices).");
 }
 
-main().then(seedServices).finally(() => db.$disconnect());
+// Starter SOPs, template links and a staff onboarding programme (only if the hub is empty).
+async function seedResourceHub() {
+  if ((await db.resource.count()) > 0) return;
+  const director = await db.user.findFirst({ where: { role: Role.DIRECTOR, active: true }, orderBy: { createdAt: "asc" } });
+  const ids: Record<string, string> = {};
+  for (const r of STARTER_RESOURCES) {
+    const created = await db.resource.create({
+      data: {
+        title: r.title, summary: r.summary, body: r.body, category: r.category, type: r.type, tags: r.tags, status: "PUBLISHED",
+        ownerId: director?.id ?? null,
+        versions: { create: { version: 1, title: r.title, body: r.body, changeNote: "Starter content", editedById: director?.id ?? null } },
+      },
+    });
+    ids[r.key] = created.id;
+  }
+  for (const l of STARTER_TEMPLATE_LINKS) {
+    await db.templateTask.updateMany({ where: { title: l.task, template: { name: l.template } }, data: { resourceId: ids[l.resource] } });
+  }
+  await db.programme.create({
+    data: {
+      name: STARTER_PROGRAMME.name,
+      description: STARTER_PROGRAMME.description,
+      steps: { create: STARTER_PROGRAMME.steps.map((st, i) => ({ title: st.title, resourceId: st.resource ? ids[st.resource] : null, dueOffsetDays: st.day, estimateMinutes: st.minutes, position: i })) },
+    },
+  });
+  console.log("Starter SOPs and staff onboarding programme added.");
+}
+
+main().then(seedServices).then(seedResourceHub).finally(() => db.$disconnect());

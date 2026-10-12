@@ -48,10 +48,11 @@ export async function TaskWorkspace({
   };
   const today = todayISO();
 
-  const [staff, clients, projects] = await Promise.all([
+  const [staff, clients, projects, resources] = await Promise.all([
     db.user.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.client.findMany({ where: { status: { not: "INACTIVE" } }, select: { id: true, name: true }, orderBy: [{ isInternal: "desc" }, { name: "asc" }] }),
     db.project.findMany({ where: { status: { not: "COMPLETED" } }, select: { id: true, name: true, clientId: true }, orderBy: { name: "asc" } }),
+    db.resource.findMany({ where: { status: "PUBLISHED" }, select: { id: true, title: true }, orderBy: { title: "asc" } }),
   ]);
 
   let body: React.ReactNode;
@@ -88,6 +89,7 @@ export async function TaskWorkspace({
         task={detail}
         staff={staff}
         projects={projects.filter((p) => p.clientId === detail.clientId)}
+        resources={resources.map((r) => ({ id: r.id, name: r.title }))}
         canEdit={await canEditTask(user, detail.id)}
         canDelete={canDelete}
       />

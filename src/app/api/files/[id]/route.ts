@@ -10,6 +10,7 @@ const ACCESS: Record<FilePurpose, Permission> = {
   SIGNED_PROPOSAL: "proposals.manage",
   CLIENT_DOCUMENT: "clients.view",
   TASK_ATTACHMENT: "tasks.work",
+  RESOURCE_ATTACHMENT: "resources.view",
 };
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -1,7 +1,7 @@
 import {
   BarChart3, Bell, BookOpen, Briefcase, CalendarClock, CalendarDays, ClipboardCheck, Clock,
   FileSignature, FolderKanban, GraduationCap, Handshake, Home, KanbanSquare, Layers, ListChecks,
-  Package, Plug, Radar, Receipt, Users, UserCog, Workflow, type LucideIcon,
+  LayoutTemplate, Package, Plug, Radar, Receipt, Users, UserCog, Workflow, type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@/lib/permissions";
 
@@ -69,6 +69,7 @@ export const NAV: NavSection[] = [
     title: "Resource Hub",
     items: [
       { label: "SOPs & Templates", href: "/resources", icon: BookOpen, permission: "resources.view", phase: 5, description: "Standard operating procedures, checklists and templates." },
+      { label: "Job Templates", href: "/resources/job-templates", icon: LayoutTemplate, permission: "resources.view", phase: 5, description: "Task lists used when projects start, linked to SOPs." },
       { label: "Staff Onboarding", href: "/resources/staff-onboarding", icon: GraduationCap, permission: "resources.view", phase: 5, description: "Programmes for new employees with tracked progress." },
     ],
   },

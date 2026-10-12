@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Paperclip, Trash2, X } from "lucide-react";
+import { BookOpen, ChevronRight, Paperclip, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { addComment, attachFiles, deleteTask, removeAttachment, updateTask } from "@/app/(app)/tasks/actions";
 import { Avatar } from "@/components/avatar";
@@ -34,12 +34,14 @@ export function TaskPanel({
   task,
   staff,
   projects,
+  resources,
   canEdit,
   canDelete,
 }: {
   task: TaskDetail;
   staff: Option[];
   projects: Option[];
+  resources: Option[];
   canEdit: boolean;
   canDelete: boolean;
 }) {
@@ -109,7 +111,7 @@ export function TaskPanel({
               type="number"
               min={0}
               step={0.25}
-              defaultValue={task.estimateMinutes ? task.estimateMinutes / 60 : ""}
+              defaultValue={task.estimateMinutes ? Math.round((task.estimateMinutes / 60) * 100) / 100 : ""}
               disabled={disabled}
               onBlur={(e) => {
                 const mins = e.target.value === "" ? null : Math.round(Number(e.target.value) * 60);
@@ -125,6 +127,12 @@ export function TaskPanel({
               </select>
             </Field>
           )}
+          <Field label="SOP">
+            <select defaultValue={task.resourceId ?? ""} disabled={disabled} onChange={(e) => save({ resourceId: e.target.value || null })} className={fieldClass}>
+              <option value="">None</option>
+              {resources.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </Field>
           {!task.parent && task.clientId && (
             <Field label="Project">
               <select defaultValue={task.projectId ?? ""} disabled={disabled} onChange={(e) => save({ projectId: e.target.value || null })} className={fieldClass}>
@@ -134,6 +142,17 @@ export function TaskPanel({
             </Field>
           )}
         </div>
+
+        {task.resource ? (
+          <Link href={`/resources/${task.resource.id}`} target="_blank" className="flex items-start gap-3 rounded-lg border border-brand/30 bg-brand-soft/60 p-3 hover:border-brand">
+            <BookOpen size={18} className="mt-0.5 shrink-0 text-brand" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-brand">How to do this</span>
+              <span className="block text-sm font-medium">{task.resource.title}</span>
+              {task.resource.summary && <span className="block text-xs text-muted">{task.resource.summary}</span>}
+            </span>
+          </Link>
+        ) : null}
 
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Description</div>

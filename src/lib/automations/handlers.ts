@@ -7,6 +7,7 @@ import { decrypt } from "@/lib/crypto";
 import { changeDealStage, convertDealToClient, logActivity } from "@/lib/deals";
 import { bookingConfirmationEmail, bookingInviteEmail, deliverEmail, queueEmail, welcomePackEmail } from "@/lib/email";
 import { outstandingLabels, reminderJob, startOnboarding, uploadUrl } from "@/lib/onboarding";
+import { onStepTaskCompleted } from "@/lib/staff-onboarding";
 import { DEFAULT_WELCOME, getFirmSettings, proposalNumber } from "@/lib/firm";
 import { formatRand } from "@/lib/money";
 import { createPlan, createSubscription } from "@/lib/paystack";
@@ -39,6 +40,8 @@ export async function runJob(name: string, payload: Payload) {
       return paystackSubscribe(payload);
     case "onboarding.reminder":
       return reminderJob(String(payload.onboardingId));
+    case "daily":
+      return dailyJob();
     default:
       throw new Error(`Unknown job "${name}"`);
   }
@@ -207,6 +210,8 @@ async function onBookingCancelled(bookingId: string) {
 async function onTaskCompleted(taskId: string, actorId: string | null) {
   const task = await db.task.findUnique({ where: { id: taskId }, include: { subtasks: { orderBy: { position: "asc" } } } });
   if (!task || task.status !== "DONE") return;
+
+  await onStepTaskCompleted(task.id);
 
   if (task.automationKey === TASK_KEYS.discoveryCall && task.dealId) {
     await db.booking.updateMany({ where: { dealId: task.dealId, status: "CONFIRMED", startsAt: { lte: new Date() } }, data: { status: "COMPLETED" } });
@@ -401,4 +406,25 @@ async function paystackSubscribe(payload: Payload) {
     data: { subscriptionCode: created.subscription_code, status: "ACTIVE", lastError: null, nextPaymentDate: created.next_payment_date ? new Date(created.next_payment_date) : sub.nextPaymentDate },
   });
   await logActivity(sub.proposal.dealId, "SYSTEM", `Monthly retainer of ${formatRand(sub.amountCents)} set up at Paystack (${created.subscription_code}).`);
+}
+
+// ---------- Daily housekeeping ----------
+
+/** Runs once a day (06:00 SAST) and schedules the next run. */
+async function dailyJob() {
+  const today = parseISODate(todayISO())!;
+  const due = await db.resource.findMany({ where: { status: "PUBLISHED", reviewDue: { lte: today }, reviewNotifiedAt: null } });
+  for (const r of due) {
+    const directors = r.ownerId ? [] : await db.user.findMany({ where: { role: "DIRECTOR", active: true }, select: { id: true } });
+    await notify([r.ownerId, ...directors.map((d) => d.id)], "system", { title: `Time to review: ${r.title}`, body: "This SOP's review date has arrived.", link: `/resources/${r.id}` });
+    await db.resource.update({ where: { id: r.id }, data: { reviewNotifiedAt: new Date() } });
+  }
+  await scheduleNextDaily();
+}
+
+export async function scheduleNextDaily() {
+  const pending = await db.job.findFirst({ where: { name: "daily", doneAt: null, runAt: { gt: new Date() } } });
+  if (pending) return;
+  const tomorrow = addDays(todayISO(), 1);
+  await enqueue("daily", {}, new Date(`${tomorrow}T06:00:00+02:00`));
 }

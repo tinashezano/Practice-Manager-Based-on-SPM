@@ -10,6 +10,7 @@ import { taskHome } from "@/lib/task-meta";
 import { notify } from "@/lib/notify";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { onStepTaskReopened } from "@/lib/staff-onboarding";
 import { saveFile } from "@/lib/storage";
 import { canEditTask } from "@/lib/task-access";
 
@@ -111,6 +112,7 @@ const updateSchema = z
     dueDate: dateField,
     estimateMinutes: z.number().int().min(0).max(100_000).nullable(),
     recurrence: z.nativeEnum(Recurrence),
+    resourceId: optionalId,
   })
   .partial();
 
@@ -169,6 +171,7 @@ export async function updateTask(id: string, patch: z.input<typeof updateSchema>
     // Runs automations: next step for lead tasks, next occurrence for repeating tasks.
     await emitEvent("task.completed", { taskId: id }, { actorId: actor.id });
   }
+  if (data.status && data.status !== "DONE" && before.status === "DONE") await onStepTaskReopened(id);
 
   revalidatePath("/", "layout");
   return { ok: true, id };

@@ -25,17 +25,21 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  ownedClients  Client[]          @relation("ClientOwner")
-  ownedProjects Project[]         @relation("ProjectOwner")
-  assignedTasks Task[]            @relation("TaskAssignee")
-  reviewTasks   Task[]            @relation("TaskReviewer")
-  createdTasks  Task[]            @relation("TaskCreator")
-  comments      TaskComment[]
-  notifications Notification[]
-  ownedDeals    Deal[]            @relation("DealOwner")
-  bookingLinks  BookingLink[]
-  bookings      Booking[]
-  google        GoogleConnection?
+  ownedClients   Client[]          @relation("ClientOwner")
+  ownedProjects  Project[]         @relation("ProjectOwner")
+  assignedTasks  Task[]            @relation("TaskAssignee")
+  reviewTasks    Task[]            @relation("TaskReviewer")
+  createdTasks   Task[]            @relation("TaskCreator")
+  comments       TaskComment[]
+  notifications  Notification[]
+  ownedDeals     Deal[]            @relation("DealOwner")
+  ownedResources Resource[]        @relation("ResourceOwner")
+  resourceReads  ResourceRead[]
+  enrollments    Enrollment[]      @relation("Enrollee")
+  mentoring      Enrollment[]      @relation("Mentor")
+  bookingLinks   BookingLink[]
+  bookings       Booking[]
+  google         GoogleConnection?
 }
 
 // Every automation-relevant thing that happens is recorded here first, then
@@ -199,8 +203,12 @@ model Task {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  comments    TaskComment[]
-  attachments TaskAttachment[]
+  comments       TaskComment[]
+  attachments    TaskAttachment[]
+  // The SOP for this task (from its job template, or linked by hand).
+  resourceId     String?
+  resource       Resource?        @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  enrollmentStep EnrollmentStep?
 
   @@index([clientId])
   @@index([dealId])
@@ -260,6 +268,8 @@ model TemplateTask {
   estimateMinutes Int?
   priority        Priority        @default(MEDIUM)
   position        Float           @default(0)
+  resourceId      String?
+  resource        Resource?       @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 }
 
 enum DealStage {
@@ -653,6 +663,7 @@ enum FilePurpose {
   SIGNED_PROPOSAL
   CLIENT_DOCUMENT
   TASK_ATTACHMENT
+  RESOURCE_ATTACHMENT
 }
 
 model StoredFile {
@@ -669,6 +680,8 @@ model StoredFile {
   proposals        Proposal[]
   onboardingItem   OnboardingFile?
   taskAttachment   TaskAttachment?
+  resourceId       String?
+  resource         Resource?       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 }
 
 model TaskAttachment {
@@ -768,4 +781,138 @@ model OnboardingActivity {
   createdAt    DateTime   @default(now())
 
   @@index([onboardingId, createdAt])
+}
+
+enum ResourceType {
+  SOP
+  TEMPLATE
+  GUIDE
+  POLICY
+}
+
+enum ResourceStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// Resource Hub: SOPs, templates, guides and policies (Markdown body).
+model Resource {
+  id               String         @id @default(cuid())
+  title            String
+  summary          String?
+  body             String
+  type             ResourceType   @default(SOP)
+  category         String
+  tags             String[]       @default([])
+  videoUrl         String?
+  status           ResourceStatus @default(DRAFT)
+  version          Int            @default(1)
+  ownerId          String?
+  owner            User?          @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  updatedById      String?
+  reviewDue        DateTime?      @db.Date
+  reviewNotifiedAt DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  versions       ResourceVersion[]
+  reads          ResourceRead[]
+  files          StoredFile[]
+  tasks          Task[]
+  templateTasks  TemplateTask[]
+  programmeSteps ProgrammeStep[]
+
+  @@index([status, category])
+}
+
+model ResourceVersion {
+  id         String   @id @default(cuid())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  version    Int
+  title      String
+  body       String
+  changeNote String?
+  editedById String?
+  createdAt  DateTime @default(now())
+
+  @@unique([resourceId, version])
+}
+
+// "I've read this" per user per version.
+model ResourceRead {
+  id         String   @id @default(cuid())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version    Int
+  readAt     DateTime @default(now())
+
+  @@unique([resourceId, userId, version])
+}
+
+// Staff onboarding programmes, e.g. "New team member: first 30 days".
+model Programme {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  steps       ProgrammeStep[]
+  enrollments Enrollment[]
+}
+
+model ProgrammeStep {
+  id              String           @id @default(cuid())
+  programmeId     String
+  programme       Programme        @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  // Read-and-acknowledge steps point at a Resource Hub item.
+  resourceId      String?
+  resource        Resource?        @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  dueOffsetDays   Int              @default(0)
+  estimateMinutes Int?
+  position        Int              @default(0)
+  enrollmentSteps EnrollmentStep[]
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Enrollment {
+  id          String           @id @default(cuid())
+  programmeId String
+  programme   Programme        @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation("Enrollee", fields: [userId], references: [id], onDelete: Cascade)
+  mentorId    String?
+  mentor      User?            @relation("Mentor", fields: [mentorId], references: [id], onDelete: SetNull)
+  startDate   DateTime         @db.Date
+  status      EnrollmentStatus @default(ACTIVE)
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  steps       EnrollmentStep[]
+
+  @@index([userId, status])
+}
+
+model EnrollmentStep {
+  id           String         @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  stepId       String?
+  step         ProgrammeStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  title        String
+  resourceId   String?
+  // Each step is also a task for the employee.
+  taskId       String?        @unique
+  task         Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  completedAt  DateTime?
+  position     Int            @default(0)
 }

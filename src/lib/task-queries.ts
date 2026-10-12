@@ -71,6 +71,7 @@ export async function getTaskDetail(id: string) {
       subtasks: { orderBy: { position: "asc" }, include: { assignee: userSelect } },
       comments: { orderBy: { createdAt: "asc" }, include: { author: userSelect } },
       attachments: { orderBy: { createdAt: "asc" }, include: { file: { select: { id: true, name: true, size: true } } } },
+      resource: { select: { id: true, title: true, summary: true } },
     },
   });
 }
