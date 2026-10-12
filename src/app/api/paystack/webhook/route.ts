@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { notify } from "@/lib/notify";
-import { verifyAndConfirm } from "@/lib/proposals";
+import { recordRenewal, verifyAndConfirm } from "@/lib/proposals";
 import { verifyWebhookSignature } from "@/lib/paystack";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ type PaystackEvent = {
   data: {
     id?: number;
     reference?: string;
+    plan?: { plan_code?: string } | string | null;
     subscription_code?: string;
     next_payment_date?: string | null;
     subscription?: { subscription_code?: string };
@@ -33,9 +34,15 @@ export async function POST(req: Request) {
   try {
     const code = evt.data.subscription_code ?? evt.data.subscription?.subscription_code;
     switch (evt.event) {
-      case "charge.success":
-        if (evt.data.reference) await verifyAndConfirm(evt.data.reference);
+      case "charge.success": {
+        const ref = evt.data.reference;
+        if (!ref) break;
+        const planCode = typeof evt.data.plan === "object" ? evt.data.plan?.plan_code : undefined;
+        // Our own checkout references are known; monthly retainer charges are new each month.
+        if (await db.payment.findUnique({ where: { reference: ref } })) await verifyAndConfirm(ref);
+        else if (planCode) await recordRenewal(ref, planCode);
         break;
+      }
       case "subscription.create":
         if (code) await db.subscription.updateMany({ where: { subscriptionCode: code }, data: { status: "ACTIVE", nextPaymentDate: evt.data.next_payment_date ? new Date(evt.data.next_payment_date) : undefined } });
         break;

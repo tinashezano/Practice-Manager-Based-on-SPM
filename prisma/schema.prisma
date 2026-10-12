@@ -635,6 +635,8 @@ model Payment {
   status       PaymentStatus   @default(PENDING)
   channel      String?
   customerCode String?
+  // Monthly retainer charges after the first payment.
+  isRenewal    Boolean         @default(false)
   note         String?
   paidAt       DateTime?
   createdAt    DateTime        @default(now())

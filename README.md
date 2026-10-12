@@ -82,6 +82,15 @@ Public pages (no login): `/book/<link>` (booking), `/book/manage/<token>`
 (lead's reschedule/cancel) and `/enquiry` (website form; can be embedded with
 `?embed=1`).
 
+## Dashboard definitions
+
+- **Revenue**: payments received (Paystack, including monthly retainer renewals, and recorded EFTs), excluding VAT, by payment date.
+- **Work value**: billable time × the person's billing rate when the time was logged.
+- **Margin**: (revenue − staff time cost) ÷ revenue.
+- **Utilisation**: billable hours ÷ available hours (after public holidays and leave).
+- **Realisation**: revenue ÷ work value.
+- **WIP**: billable work value on tasks that aren't done, aged by when the time was logged.
+
 ## Roles
 
 | Role | Access |

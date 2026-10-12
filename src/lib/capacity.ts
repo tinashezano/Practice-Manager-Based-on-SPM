@@ -64,3 +64,14 @@ export function loadLevel(planned: number, available: number): Load {
   if (pct >= 0.5) return "healthy";
   return planned > 0 ? "light" : "none";
 }
+
+/** Hours available between two dates (inclusive), after holidays and leave. */
+export function availableInRange(weeklyHours: number, from: string, to: string, holidays: Map<string, string>, leave: LeaveRange[]) {
+  const perDay = weeklyHours / 5;
+  let hours = 0;
+  for (const day of workingDays(from, to, holidays)) {
+    const off = leave.find((l) => day >= l.startDate && day <= l.endDate);
+    hours += off ? (off.halfDay ? perDay / 2 : 0) : perDay;
+  }
+  return hours;
+}

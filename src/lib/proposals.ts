@@ -293,3 +293,21 @@ export async function finalizeIfComplete(proposalId: string) {
   const { count } = await db.proposal.updateMany({ where: { id: proposalId, status: "SIGNED" }, data: { status: "ACCEPTED", acceptedAt: new Date() } });
   if (count) await emitEvent("proposal.accepted", { proposalId }, { idempotencyKey: `accepted:${proposalId}` });
 }
+
+/**
+ * A monthly retainer charge (Paystack creates a new reference every month).
+ * Matched to our subscription by plan code and re-verified with Paystack.
+ */
+export async function recordRenewal(reference: string, planCode: string) {
+  if (await db.payment.findUnique({ where: { reference } })) return null;
+  const sub = await db.subscription.findFirst({ where: { planCode }, include: { proposal: true } });
+  if (!sub) return null;
+  const tx = await verifyTransaction(reference);
+  if (tx.status !== "success" || tx.currency !== "ZAR") return null;
+  const payment = await db.payment.create({
+    data: { proposalId: sub.proposalId, provider: "PAYSTACK", reference, amountCents: tx.amount, status: "SUCCESS", channel: tx.channel, customerCode: tx.customer.customer_code, paidAt: tx.paid_at ? new Date(tx.paid_at) : new Date(), isRenewal: true, note: "Monthly retainer" },
+  });
+  await db.subscription.update({ where: { id: sub.id }, data: { status: "ACTIVE", lastError: null } });
+  await logActivity(sub.proposal.dealId, "SYSTEM", `Monthly retainer payment of ${formatRand(tx.amount)} received. Ref ${reference}.`);
+  return payment;
+}
