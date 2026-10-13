@@ -5,6 +5,8 @@ import Google from "next-auth/providers/google";
 // the database lives in src/auth.ts.
 export const authConfig = {
   pages: { signIn: "/login" },
+  // Railway (and local dev) always sit behind a proxy that sets the Host header.
+  trustHost: true,
   session: { strategy: "jwt" },
   providers: [
     Google({
