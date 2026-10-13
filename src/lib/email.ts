@@ -49,8 +49,8 @@ function layout(bodyHtml: string) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1b1f3b;max-width:560px">${bodyHtml}<p style="margin-top:28px;color:#6b7090;font-size:13px">Outset</p></div>`;
 }
 
-function button(href: string, label: string) {
-  return `<p><a href="${esc(href)}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">${esc(label)}</a></p>`;
+function button(href: string, label: string, color = "#4f46e5") {
+  return `<p><a href="${esc(href)}" style="display:inline-block;background:${/^#[0-9a-f]{6}$/i.test(color) ? color : "#4f46e5"};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">${esc(label)}</a></p>`;
 }
 
 export function bookingInviteEmail(p: { contactName: string; senderName: string; linkTitle: string; url: string }) {
@@ -76,18 +76,20 @@ export function bookingConfirmationEmail(p: { name: string; title: string; when:
   };
 }
 
-export function proposalEmail(p: { contactName: string; senderName: string; title: string; url: string; validUntil: Date }) {
-  const first = p.contactName.split(" ")[0];
-  const until = new Intl.DateTimeFormat("en-ZA", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(p.validUntil);
-  return {
-    subject: `Your proposal from Outset: ${p.title}`,
-    html: layout(
-      `<p>Hi ${esc(first!)},</p><p>Thank you for your time. Your proposal is ready. You can review it, accept it online and pay securely in a few minutes.</p>${button(p.url, "View your proposal")}<p>This proposal is valid until ${esc(until)}.</p><p>Kind regards,<br>${esc(p.senderName)}</p>`,
-    ),
-    text: `Hi ${first},\n\nThank you for your time. Your proposal is ready. You can review it, accept it online and pay securely: ${p.url}\n\nValid until ${until}.\n\nKind regards,\n${p.senderName}`,
-  };
+/**
+ * Proposal email written in the builder's Email tab. `body` is plain text with
+ * merge fields already filled in; {{proposalButton}} on its own line marks where
+ * the "View your proposal" button goes (added at the end if missing).
+ */
+export function customProposalEmail(p: { subject: string; body: string; url: string; color?: string }) {
+  const marker = "{{proposalButton}}";
+  const withButton = p.body.includes(marker) ? p.body : `${p.body.trim()}\n\n${marker}`;
+  const html = withButton
+    .split(/\n{2,}/)
+    .map((para) => (para.trim() === marker ? button(p.url, "View your proposal", p.color) : `<p>${esc(para.trim()).replace(/\n/g, "<br>")}</p>`))
+    .join("");
+  return { subject: p.subject, html: layout(html), text: withButton.replace(marker, `View your proposal: ${p.url}`) };
 }
-
 
 function itemList(items: string[]) {
   return { html: `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`, text: items.map((i) => `- ${i}`).join("\n") };

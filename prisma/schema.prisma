@@ -486,6 +486,8 @@ model FirmSettings {
   proposalValidityDays Int      @default(14)
   proposalTerms        String?
   welcomeMessage       String?
+  // Default proposal document (sections, theme, email) new proposals start from.
+  proposalTemplate     Json?
   updatedAt            DateTime @updatedAt
 }
 
@@ -561,6 +563,8 @@ model Proposal {
   status          ProposalStatus   @default(DRAFT)
   introduction    String?
   terms           String?
+  // Document builder content (sections, theme, email): see src/lib/proposal-doc.ts.
+  content         Json?
   validUntil      DateTime         @db.Date
   // When retainers start; the first month is part of the first payment.
   startDate       DateTime?        @db.Date
@@ -675,6 +679,8 @@ enum FilePurpose {
   CLIENT_DOCUMENT
   TASK_ATTACHMENT
   RESOURCE_ATTACHMENT
+  // Logos, images and brochures shown on client-facing proposals (no sign-in needed).
+  PUBLIC_ASSET
 }
 
 model StoredFile {

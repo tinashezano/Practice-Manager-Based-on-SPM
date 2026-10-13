@@ -1,16 +1,20 @@
 "use server";
 
-import { BillingType } from "@prisma/client";
+import { BillingType, type Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { parseISODate } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { logActivity } from "@/lib/deals";
-import { proposalNumber } from "@/lib/firm";
+import { getFirmSettings, proposalNumber } from "@/lib/firm";
 import { parseRand } from "@/lib/money";
 import { createProposal, recalcProposal, recordManualPayment, recordUploadedSignature, sendProposal } from "@/lib/proposals";
+import { docSchema } from "@/lib/proposal-doc";
+import { proposalDoc } from "@/lib/proposal-content";
+import { sanitizeDoc } from "@/lib/sanitize";
 import { requirePermission } from "@/lib/session";
+import { saveFile } from "@/lib/storage";
 
 type Result = { ok: true } | { ok: false; error: string };
 export type FormState = { error?: string; ok?: string };
@@ -96,23 +100,57 @@ function wrap(fn: () => Promise<void>): Promise<Result> {
   );
 }
 
-const detailsSchema = z.object({
-  title: z.string().trim().min(2).max(200),
-  introduction: z.string().max(10_000).nullable(),
-  terms: z.string().max(30_000).nullable(),
+const builderSchema = z.object({
+  title: z.string().trim().min(2, "Give the proposal a title").max(200),
   validUntil: z.string(),
   startDate: z.string().nullable(),
+  doc: docSchema,
 });
 
-export async function updateProposalDetails(id: string, input: z.input<typeof detailsSchema>): Promise<Result> {
+/** Autosave from the proposal builder: general details plus the whole document. */
+export async function saveProposal(id: string, input: z.input<typeof builderSchema>): Promise<Result & { savedAt?: string }> {
   await requirePermission("proposals.manage");
   return wrap(async () => {
     await editable(id);
-    const d = detailsSchema.parse(input);
+    const parsed = builderSchema.safeParse(input);
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Couldn't save the proposal");
+    const d = parsed.data;
     const validUntil = parseISODate(d.validUntil);
     if (!validUntil) throw new Error("Choose a valid-until date");
-    await db.proposal.update({ where: { id }, data: { title: d.title, introduction: d.introduction, terms: d.terms, validUntil, startDate: parseISODate(d.startDate) } });
-    revalidatePath(`/proposals/${id}`);
+    await db.proposal.update({
+      where: { id },
+      data: { title: d.title, validUntil, startDate: parseISODate(d.startDate), content: sanitizeDoc(d.doc) as Prisma.InputJsonValue },
+    });
+  }).then((r) => (r.ok ? { ...r, savedAt: new Date().toISOString() } : r));
+}
+
+const ASSET_TYPES = { image: ["image/png", "image/jpeg", "image/webp"], document: ["application/pdf", "image/png", "image/jpeg", "image/webp", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"] };
+
+/** Pictures, logos and brochures for proposals. These are visible to anyone with the proposal link. */
+export async function uploadProposalAsset(fd: FormData): Promise<{ ok: true; id: string; name: string; url: string } | { ok: false; error: string }> {
+  const actor = await requirePermission("proposals.manage");
+  const file = fd.get("file");
+  const kind = fd.get("kind") === "document" ? "document" : "image";
+  if (!(file instanceof File) || !file.size) return { ok: false, error: "Choose a file" };
+  if (!ASSET_TYPES[kind].includes(file.type)) return { ok: false, error: kind === "image" ? "Use a PNG, JPEG or WebP picture." : "Use a PDF, Word, Excel or picture file." };
+  if (kind === "image" && file.size > 5 * 1024 * 1024) return { ok: false, error: "Pictures must be 5 MB or smaller." };
+  try {
+    const f = await saveFile(file, { purpose: "PUBLIC_ASSET", uploadedById: actor.id });
+    return { ok: true, id: f.id, name: f.name, url: `/api/assets/${f.id}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload failed" };
+  }
+}
+
+/** Makes this proposal's layout, wording and theme the starting point for new proposals. */
+export async function saveAsTemplate(id: string): Promise<Result> {
+  await requirePermission("settings.manage");
+  return wrap(async () => {
+    const [p, firm] = await Promise.all([db.proposal.findUniqueOrThrow({ where: { id } }), getFirmSettings()]);
+    const doc = proposalDoc(p, firm);
+    // Documents attached to one client's proposal don't belong in the template.
+    const template = { ...doc, sections: doc.sections.map((s) => ({ ...s, files: [] })) };
+    await db.firmSettings.update({ where: { id: "firm" }, data: { proposalTemplate: template as Prisma.InputJsonValue } });
   });
 }
 

@@ -27,7 +27,8 @@ export const authConfig = {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
       // Public: sign-in, health check, lead-facing booking pages, the enquiry form,
-      // client proposal pages and the Paystack webhook (verified by signature).
+      // client proposal pages (and their pictures/brochures) and the Paystack
+      // webhook (verified by signature).
       const isPublic =
         pathname === "/login" ||
         pathname.startsWith("/api/auth") ||
@@ -35,6 +36,7 @@ export const authConfig = {
         pathname === "/enquiry" ||
         pathname.startsWith("/book/") ||
         pathname.startsWith("/p/") ||
+        pathname.startsWith("/api/assets/") ||
         pathname.startsWith("/upload/") ||
         pathname === "/api/paystack/webhook";
       if (isPublic) return true;

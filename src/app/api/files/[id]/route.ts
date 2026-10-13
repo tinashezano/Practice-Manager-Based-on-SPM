@@ -11,6 +11,8 @@ const ACCESS: Record<FilePurpose, Permission> = {
   CLIENT_DOCUMENT: "clients.view",
   TASK_ATTACHMENT: "tasks.work",
   RESOURCE_ATTACHMENT: "resources.view",
+  // Also served publicly by /api/assets/[id].
+  PUBLIC_ASSET: "proposals.manage",
 };
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {

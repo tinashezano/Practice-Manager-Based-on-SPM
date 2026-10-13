@@ -5,13 +5,16 @@ import { encrypt, randomToken } from "@/lib/crypto";
 import { addDays, parseISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { changeDealStage, logActivity } from "@/lib/deals";
-import { proposalEmail, queueEmail } from "@/lib/email";
+import { customProposalEmail, queueEmail } from "@/lib/email";
 import { emitEvent } from "@/lib/events";
-import { DEFAULT_TERMS, getFirmSettings, proposalNumber } from "@/lib/firm";
+import { getFirmSettings, proposalNumber } from "@/lib/firm";
 import { enqueue } from "@/lib/jobs";
 import { computeTotals, dueNow, formatRand, monthlyTotal } from "@/lib/money";
 import { notify } from "@/lib/notify";
 import { initializeTransaction, paystackMode, verifyTransaction } from "@/lib/paystack";
+import { docContext, proposalDoc, templateDoc } from "@/lib/proposal-content";
+import { mergeFields } from "@/lib/proposal-doc";
+import { mergeValues } from "@/components/proposal/document";
 
 export const proposalInclude = {
   lineItems: { orderBy: { position: "asc" } },
@@ -57,10 +60,10 @@ export async function createProposal(dealId: string, actorId: string, packageId?
     data: {
       title: pkg ? `${pkg.name} for ${deal.name}` : `Proposal for ${deal.name}`,
       dealId,
-      introduction: `Dear ${deal.contactName.split(" ")[0]},\n\nThank you for taking the time to speak with us. Based on our discussion, here is how Outset can support ${deal.name}.`,
-      terms: firm.proposalTerms || DEFAULT_TERMS,
+      content: templateDoc(firm) as Prisma.InputJsonValue,
       validUntil: parseISODate(addDays(todayISO(), firm.proposalValidityDays))!,
-      startDate: parseISODate(todayISO()),
+      // Services start on acceptance unless a date is chosen.
+      startDate: null,
       vatRatePercent: firm.vatRegistered ? firm.vatRatePercent : 0,
       publicToken: randomToken(),
       createdById: actorId,
@@ -92,6 +95,7 @@ export function proposalHash(p: ProposalWithLines) {
     title: p.title,
     introduction: p.introduction,
     terms: p.terms,
+    content: p.content ?? null,
     validUntil: p.validUntil.toISOString(),
     startDate: p.startDate?.toISOString() ?? null,
     vat: p.vatRatePercent,
@@ -114,7 +118,15 @@ export async function sendProposal(id: string, actor: { id: string; name: string
   if (displayStatus(p) === "EXPIRED") return { ok: false, error: "The valid-until date has passed. Extend it before sending." };
 
   await db.proposal.update({ where: { id }, data: { status: p.status === "DRAFT" ? "SENT" : p.status, sentAt: new Date() } });
-  const mail = proposalEmail({ contactName: p.deal.contactName, senderName: actor.name, title: p.title, url: publicUrl(p.publicToken), validUntil: p.validUntil });
+  const firm = await getFirmSettings();
+  const doc = proposalDoc(p, firm);
+  const values = { ...mergeValues(await docContext(p, firm), doc), senderName: actor.name };
+  const mail = customProposalEmail({
+    subject: mergeFields(doc.email.subject, values, false),
+    body: mergeFields(doc.email.body, values, false),
+    url: publicUrl(p.publicToken),
+    color: doc.theme.color,
+  });
   await queueEmail({ to: p.deal.email, ...mail, senderId: actor.id, dealId: p.dealId });
   await logActivity(p.dealId, "SYSTEM", `Proposal ${proposalNumber(p.number)} sent to ${p.deal.email}.`, actor.id);
 

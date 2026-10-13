@@ -1,5 +1,6 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -31,4 +32,11 @@ export async function saveFirmSettings(_: FormState, fd: FormData): Promise<Form
   await db.firmSettings.upsert({ where: { id: "firm" }, create: { id: "firm", ...parsed.data }, update: parsed.data });
   revalidatePath("/settings/billing");
   return { ok: "Saved. New proposals use these settings." };
+}
+
+/** Forget the saved proposal template: new proposals go back to the built-in layout and the terms above. */
+export async function resetProposalTemplate() {
+  await requirePermission("settings.manage");
+  await db.firmSettings.update({ where: { id: "firm" }, data: { proposalTemplate: Prisma.DbNull } });
+  revalidatePath("/settings/billing");
 }
