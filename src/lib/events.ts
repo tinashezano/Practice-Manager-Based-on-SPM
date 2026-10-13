@@ -5,6 +5,7 @@ import { enqueue, runJobNow } from "@/lib/jobs";
 export type EventType =
   | "user.invited"
   | "user.updated"
+  | "user.passwordSet"
   | "lead.created"
   | "deal.stageChanged"
   | "booking.confirmed"

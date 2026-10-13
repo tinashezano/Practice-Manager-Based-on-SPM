@@ -2,6 +2,10 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "@/auth.config";
 import { db } from "@/lib/db";
+import { verifyPassword } from "@/lib/password";
+import { rateLimited } from "@/lib/rate-limit";
+
+export const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID);
 
 export const devLoginEnabled =
   process.env.NODE_ENV !== "production" && process.env.DEV_LOGIN_ENABLED === "true";
@@ -15,6 +19,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
     ...authConfig.providers,
+    // Email + password for staff a Director has given a password.
+    Credentials({
+      id: "password",
+      name: "Email and password",
+      credentials: { email: { label: "Email", type: "email" }, password: { label: "Password", type: "password" } },
+      async authorize(credentials) {
+        // 10 attempts per 15 minutes per IP slows down password guessing.
+        if (await rateLimited("login", 10, 15 * 60_000)) return null;
+        const email = String(credentials?.email ?? "").trim().toLowerCase();
+        const password = String(credentials?.password ?? "");
+        if (!email || !password) return null;
+        const user = await db.user.findUnique({ where: { email } });
+        if (!user?.active || !(await verifyPassword(password, user.passwordHash))) return null;
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
     ...(devLoginEnabled
       ? [
           Credentials({

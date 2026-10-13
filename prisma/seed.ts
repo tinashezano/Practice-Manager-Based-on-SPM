@@ -1,5 +1,6 @@
 import { PrismaClient, Role } from "@prisma/client";
 import { STARTER_PROGRAMME, STARTER_RESOURCES, STARTER_TEMPLATE_LINKS } from "./starter-resources";
+import { hashPassword, passwordProblem } from "../src/lib/password";
 import { TEMPLATES } from "./templates";
 
 const db = new PrismaClient();
@@ -16,6 +17,17 @@ async function main() {
       update: { role: Role.DIRECTOR, active: true },
     });
     console.log(`Director ready: ${email}`);
+    // First password, only if they don't have one yet (later changes happen in the app).
+    const password = process.env.BOOTSTRAP_DIRECTOR_PASSWORD;
+    if (password) {
+      const problem = passwordProblem(password);
+      const director = await db.user.findUniqueOrThrow({ where: { email } });
+      if (problem) console.log(`BOOTSTRAP_DIRECTOR_PASSWORD not used: ${problem}`);
+      else if (!director.passwordHash) {
+        await db.user.update({ where: { email }, data: { passwordHash: await hashPassword(password) } });
+        console.log("Director password set.");
+      }
+    }
   } else {
     console.log("BOOTSTRAP_DIRECTOR_EMAIL not set — skipping Director.");
   }

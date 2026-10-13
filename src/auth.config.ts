@@ -8,18 +8,21 @@ export const authConfig = {
   // Railway (and local dev) always sit behind a proxy that sets the Host header.
   trustHost: true,
   session: { strategy: "jwt" },
-  providers: [
-    Google({
-      authorization: {
-        params: {
-          // Pre-selects the firm's Workspace domain in Google's account picker.
-          // Enforced server-side in the signIn callback as well.
-          hd: process.env.ALLOWED_EMAIL_DOMAIN,
-          prompt: "select_account",
-        },
-      },
-    }),
-  ],
+  // Google sign-in switches on once AUTH_GOOGLE_ID is set; until then staff use passwords.
+  providers: process.env.AUTH_GOOGLE_ID
+    ? [
+        Google({
+          authorization: {
+            params: {
+              // Pre-selects the firm's Workspace domain in Google's account picker.
+              // Enforced server-side in the signIn callback as well.
+              hd: process.env.ALLOWED_EMAIL_DOMAIN,
+              prompt: "select_account",
+            },
+          },
+        }),
+      ]
+    : [],
   callbacks: {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;

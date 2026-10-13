@@ -47,7 +47,7 @@ address can sign in.
    - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
    - `AUTH_SECRET` (run `npx auth secret`), `AUTH_URL` = `https://<your-domain>`, `AUTH_TRUST_HOST=true`
    - `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `ALLOWED_EMAIL_DOMAIN`
-   - `BOOTSTRAP_DIRECTOR_EMAIL`, `BOOTSTRAP_DIRECTOR_NAME`
+   - `BOOTSTRAP_DIRECTOR_EMAIL`, `BOOTSTRAP_DIRECTOR_NAME`, `BOOTSTRAP_DIRECTOR_PASSWORD` (first password; staff sign in with email + password until Google is set up, and Directors set other staff passwords under Settings → Team)
 4. Generate a domain under **Settings → Networking**.
 
 `railway.json` builds with `npm run build`. On each deploy it runs database migrations

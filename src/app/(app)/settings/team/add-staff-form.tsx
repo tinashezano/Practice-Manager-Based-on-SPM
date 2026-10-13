@@ -14,7 +14,7 @@ export function AddStaffForm() {
   }, [state]);
 
   return (
-    <form ref={formRef} action={action} className="grid gap-3 sm:grid-cols-[1fr_1fr_150px_110px_auto] sm:items-end">
+    <form ref={formRef} action={action} className="grid gap-3 sm:grid-cols-[1fr_1fr_150px_110px_1fr_auto] sm:items-end">
       <label className="text-xs font-medium text-muted">
         Name
         <input name="name" required className={`${inputClass} mt-1`} />
@@ -35,9 +35,13 @@ export function AddStaffForm() {
         Hours / week
         <input name="weeklyCapacityHours" type="number" min={0} max={80} defaultValue={40} className={`${inputClass} mt-1`} />
       </label>
+      <label className="text-xs font-medium text-muted">
+        Password (optional)
+        <input name="password" type="password" autoComplete="new-password" minLength={10} className={`${inputClass} mt-1`} />
+      </label>
       <Button disabled={pending}>{pending ? "Adding…" : "Add staff"}</Button>
       {(state.error || state.ok) && (
-        <p className={`text-sm sm:col-span-5 ${state.error ? "text-danger" : "text-success"}`}>{state.error ?? state.ok}</p>
+        <p className={`text-sm sm:col-span-6 ${state.error ? "text-danger" : "text-success"}`}>{state.error ?? state.ok}</p>
       )}
     </form>
   );

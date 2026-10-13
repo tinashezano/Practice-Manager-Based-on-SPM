@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { emitEvent } from "@/lib/events";
+import { hashPassword, passwordProblem } from "@/lib/password";
 import { requirePermission } from "@/lib/session";
 
 export type ActionState = { error?: string; ok?: string };
@@ -14,6 +15,7 @@ const addSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
   role: z.nativeEnum(Role),
   weeklyCapacityHours: z.coerce.number().int().min(0).max(80),
+  password: z.string().optional().default(""),
 });
 
 export async function addStaff(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -29,10 +31,21 @@ export async function addStaff(_: ActionState, formData: FormData): Promise<Acti
     return { error: "That email is already on the team." };
   }
 
-  const user = await db.user.create({ data: parsed.data });
+  const { password, ...data } = parsed.data;
+  if (password) {
+    const problem = passwordProblem(password);
+    if (problem) return { error: `Password: ${problem}` };
+  }
+  const user = await db.user.create({
+    data: { ...data, passwordHash: password ? await hashPassword(password) : null },
+  });
   await emitEvent("user.invited", { userId: user.id, role: user.role }, { actorId: actor.id });
   revalidatePath("/settings/team");
-  return { ok: `${user.name} added. They can now sign in with Google.` };
+  return {
+    ok: password
+      ? `${user.name} added. Send them their password privately so they can sign in.`
+      : `${user.name} added. Set a password for them below so they can sign in.`,
+  };
 }
 
 const rand = z.preprocess((v) => (v === "" || v == null ? 0 : v), z.coerce.number().min(0).max(100_000)).transform((r) => Math.round(r * 100));
@@ -74,4 +87,17 @@ export async function updateStaff(formData: FormData) {
   });
   await emitEvent("user.updated", { userId: target.id, role: data.role, active: data.active }, { actorId: actor.id });
   revalidatePath("/settings/team");
+}
+
+// A Director sets (or resets) a team member's password.
+export async function setStaffPassword(_: ActionState, formData: FormData): Promise<ActionState> {
+  const actor = await requirePermission("team.manage");
+  const userId = String(formData.get("userId") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const problem = passwordProblem(password);
+  if (problem) return { error: problem };
+  const user = await db.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(password) } });
+  await emitEvent("user.passwordSet", { userId: user.id }, { actorId: actor.id });
+  revalidatePath("/settings/team");
+  return { ok: "Password set." };
 }

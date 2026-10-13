@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { Badge, Button, Card, PageHeader, initials, inputBase } from "@/components/ui";
 import { db } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
 import { AddStaffForm } from "./add-staff-form";
+import { StaffPasswordForm } from "./password-form";
 import { updateStaff } from "./actions";
 
 export const metadata = { title: "Team & Roles" };
@@ -34,6 +36,7 @@ export default async function TeamPage() {
               <th className="px-3 py-3 font-medium">Role</th>
               <th className="px-3 py-3 font-medium">Hours / week · R/h bill · R/h cost · target</th>
               <th className="px-3 py-3 font-medium">Status</th>
+              <th className="px-3 py-3 font-medium">Password</th>
               <th className="px-3 py-3 font-medium">Last sign-in</th>
               <th className="px-5 py-3" />
             </tr>
@@ -81,6 +84,13 @@ export default async function TeamPage() {
                       {self && <input type="hidden" name="active" value="true" />}
                       <Button variant="secondary">Save</Button>
                     </form>
+                  </td>
+                  <td className="px-3 py-3">
+                    {self ? (
+                      <Link href="/account" className="text-xs text-brand hover:underline">Change yours</Link>
+                    ) : (
+                      <StaffPasswordForm userId={u.id} hasPassword={Boolean(u.passwordHash)} />
+                    )}
                   </td>
                   <td className="px-3 py-3 text-xs text-muted">
                     {u.lastLoginAt

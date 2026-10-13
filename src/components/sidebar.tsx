@@ -116,10 +116,10 @@ export function Sidebar({ user, signOutAction, unreadCount, timer }: Props) {
           {initials(user.name)}
         </div>
         {!collapsed && (
-          <div className="min-w-0 flex-1">
+          <Link href="/account" className="min-w-0 flex-1 rounded-md hover:text-brand" title="My account">
             <div className="truncate text-[13px] font-medium">{user.name}</div>
             <div className="truncate text-[11px] text-muted">{ROLE_LABELS[user.role]} · {user.email}</div>
-          </div>
+          </Link>
         )}
         {!collapsed && (
           <form action={signOutAction}>
