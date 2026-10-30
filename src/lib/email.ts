@@ -76,6 +76,17 @@ export function bookingConfirmationEmail(p: { name: string; title: string; when:
   };
 }
 
+export function inviteEmail(p: { name: string; inviterName: string; firmName: string; url: string; days: number }) {
+  const first = p.name.split(" ")[0]!;
+  return {
+    subject: `${p.inviterName} invited you to Outset PM`,
+    html: layout(
+      `<p>Hi ${esc(first)},</p><p>${esc(p.inviterName)} has added you to ${esc(p.firmName)}'s practice manager, Outset PM. Click below to choose your password and sign in.</p>${button(p.url, "Set up your account")}<p>This link works once and expires in ${p.days} days. Sign in with this email address.</p>`,
+    ),
+    text: `Hi ${first},\n\n${p.inviterName} has added you to ${p.firmName}'s practice manager, Outset PM. Choose your password and sign in here:\n${p.url}\n\nThis link works once and expires in ${p.days} days.`,
+  };
+}
+
 /**
  * Proposal email written in the builder's Email tab. `body` is plain text with
  * merge fields already filled in; {{proposalButton}} on its own line marks where

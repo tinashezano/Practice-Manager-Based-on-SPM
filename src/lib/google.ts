@@ -13,9 +13,9 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
 ];
 
-export function googleConfigured() {
-  return !!process.env.AUTH_GOOGLE_ID && !!process.env.AUTH_GOOGLE_SECRET;
-}
+import { googleConfigured } from "@/lib/google-config";
+
+export { googleConfigured, googleKeyProblem } from "@/lib/google-config";
 
 const redirectUri = () => appUrl("/api/google/callback");
 

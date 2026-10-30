@@ -1,5 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
+import { googleConfigured } from "@/lib/google-config";
 
 // Edge-safe part of the auth config (used by middleware). Anything touching
 // the database lives in src/auth.ts.
@@ -8,8 +9,8 @@ export const authConfig = {
   // Railway (and local dev) always sit behind a proxy that sets the Host header.
   trustHost: true,
   session: { strategy: "jwt" },
-  // Google sign-in switches on once AUTH_GOOGLE_ID is set; until then staff use passwords.
-  providers: process.env.AUTH_GOOGLE_ID
+  // Google sign-in switches on once real Google keys are set; until then staff use passwords.
+  providers: googleConfigured()
     ? [
         Google({
           authorization: {
@@ -31,6 +32,7 @@ export const authConfig = {
       // webhook (verified by signature).
       const isPublic =
         pathname === "/login" ||
+        pathname.startsWith("/welcome/") ||
         pathname.startsWith("/api/auth") ||
         pathname === "/api/health" ||
         pathname === "/enquiry" ||

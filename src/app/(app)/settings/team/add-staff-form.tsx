@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef } from "react";
 import { Button, inputClass } from "@/components/ui";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { addStaff, type ActionState } from "./actions";
+import { InviteLink } from "./invite-button";
 
 export function AddStaffForm() {
   const [state, action, pending] = useActionState<ActionState, FormData>(addStaff, {});
@@ -36,12 +37,15 @@ export function AddStaffForm() {
         <input name="weeklyCapacityHours" type="number" min={0} max={80} defaultValue={40} className={`${inputClass} mt-1`} />
       </label>
       <label className="text-xs font-medium text-muted">
-        Password (optional)
+        Password (optional, else we email an invite)
         <input name="password" type="password" autoComplete="new-password" minLength={10} className={`${inputClass} mt-1`} />
       </label>
       <Button disabled={pending}>{pending ? "Adding…" : "Add staff"}</Button>
       {(state.error || state.ok) && (
-        <p className={`text-sm sm:col-span-6 ${state.error ? "text-danger" : "text-success"}`}>{state.error ?? state.ok}</p>
+        <div className={`text-sm sm:col-span-6 ${state.error ? "text-danger" : "text-success"}`}>
+          {state.error ?? state.ok}
+          {state.inviteUrl && <InviteLink url={state.inviteUrl} />}
+        </div>
       )}
     </form>
   );

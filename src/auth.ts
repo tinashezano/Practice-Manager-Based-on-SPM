@@ -2,10 +2,11 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "@/auth.config";
 import { db } from "@/lib/db";
+import { googleConfigured } from "@/lib/google-config";
 import { verifyPassword } from "@/lib/password";
 import { rateLimited } from "@/lib/rate-limit";
 
-export const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID);
+export const googleEnabled = googleConfigured();
 
 export const devLoginEnabled =
   process.env.NODE_ENV !== "production" && process.env.DEV_LOGIN_ENABLED === "true";

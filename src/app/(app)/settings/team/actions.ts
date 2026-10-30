@@ -5,10 +5,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { emitEvent } from "@/lib/events";
+import { sendInvite } from "@/lib/invites";
 import { hashPassword, passwordProblem } from "@/lib/password";
 import { requirePermission } from "@/lib/session";
 
-export type ActionState = { error?: string; ok?: string };
+export type ActionState = { error?: string; ok?: string; inviteUrl?: string };
 
 const addSchema = z.object({
   name: z.string().trim().min(2, "Enter a name"),
@@ -41,11 +42,9 @@ export async function addStaff(_: ActionState, formData: FormData): Promise<Acti
   });
   await emitEvent("user.invited", { userId: user.id, role: user.role }, { actorId: actor.id });
   revalidatePath("/settings/team");
-  return {
-    ok: password
-      ? `${user.name} added. Send them their password privately so they can sign in.`
-      : `${user.name} added. Set a password for them below so they can sign in.`,
-  };
+  if (password) return { ok: `${user.name} added. Send them their password privately so they can sign in.` };
+  const inviteUrl = await sendInvite(user.id, actor);
+  return { ok: `${user.name} added and invited by email. If the email doesn't arrive, send them this link:`, inviteUrl };
 }
 
 const rand = z.preprocess((v) => (v === "" || v == null ? 0 : v), z.coerce.number().min(0).max(100_000)).transform((r) => Math.round(r * 100));
@@ -100,4 +99,14 @@ export async function setStaffPassword(_: ActionState, formData: FormData): Prom
   await emitEvent("user.passwordSet", { userId: user.id }, { actorId: actor.id });
   revalidatePath("/settings/team");
   return { ok: "Password set." };
+}
+
+/** Emails a new "set up your account" link (replacing any earlier one). */
+export async function inviteStaff(_: ActionState, formData: FormData): Promise<ActionState> {
+  const actor = await requirePermission("team.manage");
+  const user = await db.user.findUnique({ where: { id: String(formData.get("userId") ?? "") } });
+  if (!user?.active) return { error: "Only active team members can be invited." };
+  const inviteUrl = await sendInvite(user.id, actor);
+  revalidatePath("/settings/team");
+  return { ok: "Invite emailed. Backup link:", inviteUrl };
 }

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
 import { AddStaffForm } from "./add-staff-form";
+import { InviteButton } from "./invite-button";
 import { StaffPasswordForm } from "./password-form";
 import { updateStaff } from "./actions";
 
@@ -18,6 +19,14 @@ const ROLE_SUMMARY = [
 export default async function TeamPage() {
   const actor = await requirePermission("team.manage");
   const staff = await db.user.findMany({ orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }] });
+  // Latest invite email per person, to show whether it actually went out.
+  const invites = await db.emailMessage.findMany({
+    where: { to: { in: staff.map((u) => u.email) }, subject: { endsWith: "invited you to Outset PM" } },
+    orderBy: { createdAt: "desc" },
+    select: { to: true, status: true, error: true, createdAt: true },
+  });
+  const lastInvite = (email: string) => invites.find((i) => i.to === email);
+  const now = new Date();
 
   return (
     <>
@@ -36,7 +45,7 @@ export default async function TeamPage() {
               <th className="px-3 py-3 font-medium">Role</th>
               <th className="px-3 py-3 font-medium">Hours / week · R/h bill · R/h cost · target</th>
               <th className="px-3 py-3 font-medium">Status</th>
-              <th className="px-3 py-3 font-medium">Password</th>
+              <th className="px-3 py-3 font-medium">Access</th>
               <th className="px-3 py-3 font-medium">Last sign-in</th>
               <th className="px-5 py-3" />
             </tr>
@@ -85,11 +94,15 @@ export default async function TeamPage() {
                       <Button variant="secondary">Save</Button>
                     </form>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="w-[250px] min-w-[250px] space-y-1.5 px-3 py-3 align-top">
                     {self ? (
-                      <Link href="/account" className="text-xs text-brand hover:underline">Change yours</Link>
+                      <Link href="/account" className="text-xs text-brand hover:underline">Change your password</Link>
                     ) : (
-                      <StaffPasswordForm userId={u.id} hasPassword={Boolean(u.passwordHash)} />
+                      <>
+                        <AccessStatus hasPassword={!!u.passwordHash} invitePending={!!u.inviteExpiresAt && u.inviteExpiresAt > now} invite={lastInvite(u.email)} />
+                        {u.active && <InviteButton userId={u.id} label={u.passwordHash ? "Send new invite" : u.inviteExpiresAt ? "Resend invite" : "Send invite"} />}
+                        <StaffPasswordForm userId={u.id} hasPassword={Boolean(u.passwordHash)} />
+                      </>
                     )}
                   </td>
                   <td className="px-3 py-3 text-xs text-muted">
@@ -119,5 +132,19 @@ export default async function TeamPage() {
         </dl>
       </Card>
     </>
+  );
+}
+
+function AccessStatus({ hasPassword, invitePending, invite }: { hasPassword: boolean; invitePending: boolean; invite?: { status: string; error: string | null } }) {
+  if (hasPassword) return <Badge tone="success">Can sign in</Badge>;
+  if (!invitePending) return <Badge tone="warning">Not invited yet</Badge>;
+  const emailed = invite?.status === "SENT";
+  return (
+    <div className="text-xs">
+      <Badge tone="brand">Invite pending</Badge>
+      <p className={`mt-1 ${emailed ? "text-muted" : "text-warning"}`} title={invite?.error ?? undefined}>
+        {emailed ? "Email sent." : invite?.status === "QUEUED" ? "Email sending…" : "Email not sent: connect Google (Booking Links) or copy the link after resending."}
+      </p>
+    </div>
   );
 }

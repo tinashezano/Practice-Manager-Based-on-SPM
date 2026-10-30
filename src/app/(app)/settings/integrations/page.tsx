@@ -5,7 +5,7 @@ import { GoogleConnectCard } from "@/components/google-connect";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { googleConfigured } from "@/lib/google";
+import { googleConfigured, googleKeyProblem } from "@/lib/google";
 import { requirePermission } from "@/lib/session";
 
 export const metadata = { title: "Integrations" };
@@ -28,7 +28,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
       <Card className="mb-6 p-0">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-sm font-semibold">Team Google connections</h2>
-          {googleConfigured() ? <Badge tone="success">Google OAuth configured</Badge> : <Badge tone="danger">AUTH_GOOGLE_ID / SECRET missing</Badge>}
+          {googleConfigured() ? <Badge tone="success">Google OAuth configured</Badge> : <Badge tone="danger">Google keys not set up: {googleKeyProblem()}</Badge>}
         </div>
         <div className="divide-y divide-border">
           {staff.map((u) => (

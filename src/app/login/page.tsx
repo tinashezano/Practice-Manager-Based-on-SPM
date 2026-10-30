@@ -13,10 +13,10 @@ const ERRORS: Record<string, string> = {
   AccessDenied: "Access denied.",
 };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; welcome?: string; email?: string }> }) {
   const session = await auth();
   if (session?.user) redirect("/");
-  const { error } = await searchParams;
+  const { error, welcome, email } = await searchParams;
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
@@ -29,6 +29,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           {googleEnabled ? "Use your Google Workspace account or your password." : "Use your work email and password."}
         </p>
 
+        {welcome && !error && <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-success">Your account is ready. Sign in with your new password.</p>}
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-danger">{ERRORS[error] ?? "Sign-in failed."}</p>
         )}
@@ -63,7 +64,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         >
           <label className="block text-xs font-medium text-muted">
             Work email
-            <input name="email" type="email" required autoComplete="username" className={`${inputClass} mt-1`} />
+            <input name="email" type="email" required autoComplete="username" defaultValue={email ?? ""} className={`${inputClass} mt-1`} />
           </label>
           <label className="block text-xs font-medium text-muted">
             Password
