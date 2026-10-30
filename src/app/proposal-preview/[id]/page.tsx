@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
-import { ProposalPages } from "@/components/proposal/document";
+import { DocumentView } from "@/components/proposal/document";
 import { db } from "@/lib/db";
 import { getFirmSettings } from "@/lib/firm";
 import { docContext, proposalDoc } from "@/lib/proposal-content";
+import type { Responses } from "@/lib/proposal-doc";
 import { proposalInclude } from "@/lib/proposals";
 import { requirePermission } from "@/lib/session";
 import { PreviewBar } from "./preview-bar";
@@ -19,10 +20,10 @@ export default async function ProposalPreviewPage({ params, searchParams }: { pa
   const firm = await getFirmSettings();
   const doc = proposalDoc(p, firm);
   return (
-    <div className="min-h-screen py-6 print:bg-white print:py-0" style={{ background: doc.theme.background }}>
+    <div className="min-h-screen bg-[#eef0f7] py-6 print:bg-white print:py-0">
       <PreviewBar autoPrint={print === "1"} />
       <div className="px-4 print:px-0">
-        <ProposalPages doc={doc} ctx={await docContext(p, firm)} />
+        <DocumentView doc={doc} ctx={await docContext(p, firm)} responses={p.clientResponses as Responses | null} />
       </div>
     </div>
   );

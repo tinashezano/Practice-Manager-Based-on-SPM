@@ -1,27 +1,35 @@
 "use client";
 
-import type { BillingType } from "@prisma/client";
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Check, ChevronLeft, ChevronRight, Eye, EyeOff, FileDown, FileText, Plus, Save, Send, Trash2, TriangleAlert, Upload, X,
+  DndContext, DragOverlay, PointerSensor, closestCenter, pointerWithin, useDraggable, useDroppable, useSensor, useSensors,
+  type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent,
+} from "@dnd-kit/core";
+import type { Editor } from "@tiptap/react";
+import {
+  ArrowDown, ArrowLeft, ArrowUp, Bookmark, Braces, CalendarDays, ChevronRight, CircleDot, Copy, EllipsisVertical, Eye, FileDown, FileText, GripVertical,
+  Heading1, Image as ImageIcon, LayoutTemplate, Library, Minus, Package, PenLine, Plus, Save, Search, Send, Settings2, Signature, SquareCheck, Table,
+  TextCursorInput, Trash2, Type, Upload, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CoverPage, PageFrame, SectionExtras, SectionHeading, mergeValues, pageAnchor, themeStyle, type DocContext, type DocLine } from "@/components/proposal/document";
+import { BlockView, Sheet, themeStyle } from "@/components/proposal/document";
 import { DocEditorContent, Ribbon, useDocEditor } from "@/components/proposal/rich-editor";
 import { useAction } from "@/components/tasks/use-action";
-import { inputClass } from "@/components/ui";
-import { formatDate } from "@/lib/dates";
-import { computeTotals, dueNow, formatRand, monthlyTotal, parseRand } from "@/lib/money";
+import { computeTotals, dueNow, formatRand } from "@/lib/money";
 import {
-  FONTS, KIND_LABELS, MERGE_FIELDS, REQUIRED_KINDS, docIssues, mergeFields, newSection, snippet, termLabel, type DocSection, type FontKey, type ProposalDoc,
+  ELEMENTS, cloneBlock, clonePage, docIssues, mergeValues, newBlock, newPage,
+  type Block, type BlockOf, type BlockType, type DocContext, type DocPage, type PackageSnapshot, type ProposalDoc, type Responses,
 } from "@/lib/proposal-doc";
+import { deleteDraft, deleteLibraryBlock, deleteTemplate, saveLibraryBlock, saveProposal, saveTemplate, send, setDefaultTemplate } from "../actions";
 import {
-  addCustomLine, addPackageLines, addServiceLine, deleteDraft, removeLine, saveAsTemplate, saveProposal, send, updateLine, uploadProposalAsset,
-} from "../actions";
+  DetailsModal, HeaderFooterModal, LibraryModal, Modal, PropertiesPanel, SendModal, TemplatesModal, VariablesModal, upload,
+  type LibraryRow, type Option, type TemplateRow,
+} from "./builder-panels";
 
 type State = { title: string; validUntil: string; startDate: string | null; doc: ProposalDoc };
-type Selected = "general" | "cover" | "theme" | "email" | "status" | string; // or a section id
-type Option = { id: string; name: string; priceCents?: number; billingType?: BillingType };
+type DragData = { kind: "new"; type: BlockType } | { kind: "block"; pageId: string } | { kind: "page"; pageId: string };
+type Drop = { pageId: string; index: number } | null;
+type ModalName = "header" | "templates" | "library" | "variables" | "send" | "details" | "status";
 
 export type BuilderProps = {
   id: string;
@@ -32,47 +40,60 @@ export type BuilderProps = {
   expired: boolean;
   backHref: string;
   initial: State;
+  builtInDoc: ProposalDoc;
   ctx: DocContext;
-  hasEmail: boolean;
+  contactEmail: string | null;
+  responses: Responses | null;
   services: Option[];
   packages: Option[];
-  canTemplate: boolean;
+  firmPackages: PackageSnapshot[];
+  templates: TemplateRow[];
+  library: LibraryRow[];
+  canManageTemplates: boolean;
   updatedAt: string;
   paymentMode: string;
   statusPanel: React.ReactNode;
 };
 
-const ACCENTS = ["#375dfb", "#4f46e5", "#0f766e", "#15803d", "#b45309", "#be123c", "#7c3aed", "#1f2937"];
-const BACKGROUNDS = ["#efe8dc", "#f3f4f6", "#eef2ff", "#ecfdf5", "#fdf2f8", "#ffffff"];
-const TERMS = [null, 1, 3, 6, 12, 24, 36] as const;
-const OPTIONAL: string[] = ["documents", "perks", "custom", "nextStep"];
+const ICONS: Record<BlockType, LucideIcon> = {
+  text: Type, heading: Heading1, image: ImageIcon, divider: Minus, signature: PenLine, initials: Signature, textField: TextCursorInput,
+  date: CalendarDays, checkbox: SquareCheck, radio: CircleDot, pricingTable: Table, packages: Package,
+};
 
-const savedFmt = new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", hour: "numeric", minute: "2-digit", day: "numeric", month: "short", year: "numeric" });
+const savedFmt = new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", hour: "numeric", minute: "2-digit", day: "numeric", month: "short" });
 
-async function upload(file: File, kind: "image" | "document") {
-  const fd = new FormData();
-  fd.set("file", file);
-  fd.set("kind", kind);
-  const r = await uploadProposalAsset(fd);
-  return r.ok ? r : { error: r.error };
-}
+// Pointer-within first (so blocks win over the page behind them), then nearest.
+const collision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  const blocks = hits.filter((h) => !String(h.id).startsWith("page:"));
+  if (blocks.length) return blocks;
+  return hits.length ? hits : closestCenter(args);
+};
 
 export function ProposalBuilder(props: BuilderProps) {
   const { id, locked, ctx } = props;
   const [state, setState] = useState<State>(props.initial);
-  const [selected, setSelected] = useState<Selected | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activePageId, setActivePageId] = useState(props.initial.doc.pages[0]!.id);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [modal, setModal] = useState<ModalName | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [search, setSearch] = useState("");
+  const [dragging, setDragging] = useState<BlockType | null>(null);
+  const [drop, setDrop] = useState<Drop>(null);
   const [save, setSave] = useState<{ status: "saved" | "dirty" | "saving" | "error"; at: string; error?: string }>({ status: "saved", at: props.updatedAt });
-  const [showIssues, setShowIssues] = useState(false);
   const { run, pending, toast } = useAction();
   const [sending, startSend] = useTransition();
   const stateRef = useRef(state);
   stateRef.current = state;
   const savedJson = useRef(JSON.stringify(props.initial));
   const chain = useRef<Promise<boolean>>(Promise.resolve(true));
-
   const doc = state.doc;
+
   const live: DocContext = useMemo(() => ({ ...ctx, title: state.title, validUntil: state.validUntil, startDate: state.startDate }), [ctx, state.title, state.validUntil, state.startDate]);
-  const issues = docIssues(doc, { lineCount: ctx.lines.length, hasEmail: props.hasEmail, expired: props.expired });
+  const values = useMemo(() => mergeValues(live), [live]);
+  const issues = docIssues(doc, { lineCount: ctx.lines.length, hasEmail: !!props.contactEmail, expired: props.expired });
+  const totals = computeTotals(ctx.lines, ctx.vatRate);
 
   // ---------- Autosave ----------
   const flush = useCallback(() => {
@@ -103,592 +124,561 @@ export function ProposalBuilder(props: BuilderProps) {
     const warn = (e: BeforeUnloadEvent) => {
       if (JSON.stringify(stateRef.current) !== savedJson.current) e.preventDefault();
     };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (setSelectedId(null), setMenu(false));
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      window.removeEventListener("keydown", esc);
+    };
   }, []);
 
   // ---------- Document edits ----------
-  const setDoc = (fn: (d: ProposalDoc) => ProposalDoc) => setState((s) => ({ ...s, doc: fn(s.doc) }));
-  const patchSection = (sid: string, patch: Partial<DocSection>) => setDoc((d) => ({ ...d, sections: d.sections.map((s) => (s.id === sid ? { ...s, ...patch } : s)) }));
-  const moveSection = (sid: string, dir: -1 | 1) =>
-    setDoc((d) => {
-      const i = d.sections.findIndex((s) => s.id === sid);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= d.sections.length) return d;
-      const next = [...d.sections];
-      [next[i], next[j]] = [next[j]!, next[i]!];
-      return { ...d, sections: next };
-    });
-  const addSection = () => {
-    const s = newSection("custom", "New section");
-    setDoc((d) => {
-      const ty = d.sections.findIndex((x) => x.kind === "thankYou");
-      const next = [...d.sections];
-      next.splice(ty < 0 ? next.length : ty, 0, s);
-      return { ...d, sections: next };
-    });
-    setSelected(s.id);
-  };
-  const removeSection = (sid: string) => {
-    if (!confirm("Delete this section?")) return;
-    setDoc((d) => ({ ...d, sections: d.sections.filter((s) => s.id !== sid) }));
-    setSelected(null);
+  const setDoc = useCallback((fn: (d: ProposalDoc) => ProposalDoc) => setState((s) => ({ ...s, doc: fn(s.doc) })), []);
+  const setPages = useCallback((fn: (pages: DocPage[]) => DocPage[]) => setDoc((d) => ({ ...d, pages: fn(d.pages) })), [setDoc]);
+  const locate = (blockId: string) => {
+    for (const p of doc.pages) {
+      const i = p.blocks.findIndex((b) => b.id === blockId);
+      if (i >= 0) return { page: p, index: i, block: p.blocks[i]! };
+    }
+    return null;
   };
 
-  const section = doc.sections.find((s) => s.id === selected) ?? null;
-  const visible = doc.sections.filter((s) => !s.hidden);
-  const servicesSection = doc.sections.find((s) => s.kind === "services")!;
-  const pricingSection = doc.sections.find((s) => s.kind === "pricing")!;
-  const stage2 = doc.sections.filter((s) => s.kind !== "services" && s.kind !== "pricing");
+  const insertBlock = (block: Block, pageId = activePageId, index?: number) => {
+    setPages((pages) => pages.map((p) => (p.id === pageId ? { ...p, blocks: [...p.blocks.slice(0, index ?? p.blocks.length), block, ...p.blocks.slice(index ?? p.blocks.length)] } : p)));
+    setSelectedId(block.id);
+    setActivePageId(pageId);
+  };
+  const patchBlock = useCallback((blockId: string, patch: Partial<Block>) => setPages((pages) => pages.map((p) => ({ ...p, blocks: p.blocks.map((b) => (b.id === blockId ? ({ ...b, ...patch } as Block) : b)) }))), [setPages]);
+  const removeBlock = (blockId: string) => {
+    setPages((pages) => pages.map((p) => ({ ...p, blocks: p.blocks.filter((b) => b.id !== blockId) })));
+    setSelectedId(null);
+  };
+  const duplicateBlock = (blockId: string) => {
+    const at = locate(blockId);
+    if (at) insertBlock(cloneBlock(at.block), at.page.id, at.index + 1);
+  };
+  const moveBlockTo = (blockId: string, pageId: string, index: number) =>
+    setPages((pages) => {
+      const from = pages.find((p) => p.blocks.some((b) => b.id === blockId));
+      if (!from) return pages;
+      const fromIndex = from.blocks.findIndex((b) => b.id === blockId);
+      const block = from.blocks[fromIndex]!;
+      const target = from.id === pageId && fromIndex < index ? index - 1 : index;
+      const without = pages.map((p) => (p.id === from.id ? { ...p, blocks: p.blocks.filter((b) => b.id !== blockId) } : p));
+      return without.map((p) => (p.id === pageId ? { ...p, blocks: [...p.blocks.slice(0, target), block, ...p.blocks.slice(target)] } : p));
+    });
+  const nudgeBlock = (blockId: string, dir: -1 | 1) => {
+    const at = locate(blockId);
+    if (!at) return;
+    const pi = doc.pages.indexOf(at.page);
+    const j = at.index + dir;
+    if (j >= 0 && j < at.page.blocks.length) moveBlockTo(blockId, at.page.id, dir === 1 ? j + 1 : j);
+    else if (dir === -1 && pi > 0) moveBlockTo(blockId, doc.pages[pi - 1]!.id, doc.pages[pi - 1]!.blocks.length);
+    else if (dir === 1 && pi < doc.pages.length - 1) moveBlockTo(blockId, doc.pages[pi + 1]!.id, 0);
+  };
 
-  // Which page the canvas shows.
-  const canvasKey: string = section ? section.id : selected === "email" ? "email" : "cover";
-
-  const doSend = () =>
-    startSend(async () => {
-      if (!(await flush())) return;
-      if (issues.some((i) => i.message === "No services added" || i.message.startsWith("The lead has no email"))) {
-        setShowIssues(true);
-        return;
-      }
-      if (!confirm(props.status === "DRAFT" ? `Email this proposal to the client now?` : "Resend the proposal email?")) return;
-      run(() => send(id));
+  const addPage = (afterIndex: number) => {
+    const p = newPage();
+    setPages((pages) => [...pages.slice(0, afterIndex + 1), p, ...pages.slice(afterIndex + 1)]);
+    setActivePageId(p.id);
+  };
+  const movePage = (index: number, dir: -1 | 1) =>
+    setPages((pages) => {
+      const j = index + dir;
+      if (j < 0 || j >= pages.length) return pages;
+      const next = [...pages];
+      [next[index], next[j]] = [next[j]!, next[index]!];
+      return next;
     });
 
-  const t = computeTotals(ctx.lines, ctx.vatRate);
-  const { term, start } = termLabel(doc.general.termMonths, !state.startDate, formatDate(state.startDate, { day: "numeric", month: "short", year: "numeric" }));
+  const saveToLibrary = (block: Block) => {
+    const name = window.prompt("Name this block for your library", block.type === "heading" ? block.text : "");
+    if (name?.trim()) run(() => saveLibraryBlock({ name: name.trim(), block }), () => alert("Saved to your library."));
+  };
 
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-[#f6f6f9]">
-      {toast}
-      {/* ---------- Top bar ---------- */}
-      <header className="flex flex-wrap items-center gap-3 border-b border-border bg-white px-4 py-2.5">
-        <Link href={props.backHref} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border hover:bg-background" aria-label="Back"><ArrowLeft size={16} /></Link>
-        <span className="text-[15px] font-semibold">{locked ? "View Proposal" : "Edit Proposal"}</span>
-        <input
-          value={state.title}
-          onChange={(e) => setState((s) => ({ ...s, title: e.target.value }))}
-          disabled={locked}
-          aria-label="Proposal title"
-          className="h-9 w-72 rounded-lg border border-border px-3 text-sm focus:border-brand focus:outline-none disabled:bg-background"
-        />
-        <span className="text-xs text-muted">{props.number}</span>
+  // ---------- Drag and drop ----------
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const dropTarget = (e: DragOverEvent | DragEndEvent): Drop => {
+    const { over, active } = e;
+    const data = over?.data.current as DragData | undefined;
+    if (!over || !data || over.id === active.id) return null;
+    const page = doc.pages.find((p) => p.id === (data as { pageId?: string }).pageId);
+    if (!page) return null;
+    if (data.kind === "page") return { pageId: page.id, index: page.blocks.length };
+    const idx = page.blocks.findIndex((b) => b.id === over.id);
+    const r = active.rect.current.translated;
+    const y = r ? r.top + r.height / 2 : 0;
+    return { pageId: page.id, index: idx + (y > over.rect.top + over.rect.height / 2 ? 1 : 0) };
+  };
+  const onDragStart = (e: DragStartEvent) => {
+    const data = e.active.data.current as DragData;
+    setDragging(data.kind === "new" ? data.type : locate(String(e.active.id))?.block.type ?? null);
+  };
+  const onDragOver = (e: DragOverEvent) => setDrop(dropTarget(e));
+  const onDragEnd = (e: DragEndEvent) => {
+    const t = dropTarget(e);
+    setDrop(null);
+    setDragging(null);
+    if (!t) return;
+    const data = e.active.data.current as DragData;
+    if (data.kind === "new") insertBlock(newBlock(data.type), t.pageId, t.index);
+    else moveBlockTo(String(e.active.id), t.pageId, t.index);
+  };
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className={`text-sm ${props.status === "DRAFT" ? "text-[#f97316]" : "text-brand"}`}>• {props.statusLabel}</span>
-          {!locked && (
-            <span className={`text-xs ${save.status === "error" ? "text-danger" : "text-muted"}`} title={save.error}>
-              {save.status === "saving" ? "Saving…" : save.status === "dirty" ? "Unsaved changes" : save.status === "error" ? `Not saved: ${save.error}` : `Saved ${savedFmt.format(new Date(save.at))}`}
-            </span>
-          )}
-          {!locked && (
-            <div className="relative">
-              <button
-                onClick={() => setShowIssues(!showIssues)}
-                className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium ${issues.length ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}
-              >
-                {issues.length ? <><span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] text-white">{issues.length}</span> issues</> : <><Check size={13} /> Ready</>}
-              </button>
-              {showIssues && issues.length > 0 && (
-                <div className="absolute right-0 top-10 z-50 w-72 rounded-xl border border-border bg-white p-2 shadow-xl">
-                  {issues.map((i) => (
-                    <button key={i.message} onClick={() => { setSelected(i.target === "email" ? "email" : i.target); setShowIssues(false); }} className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-background">
-                      <TriangleAlert size={15} className="mt-0.5 shrink-0 text-amber-500" /> {i.message}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <a href={`/proposal-preview/${id}`} target="_blank" className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm hover:bg-background"><Eye size={15} /> Preview</a>
-          <a href={`/proposal-preview/${id}?print=1`} target="_blank" className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm hover:bg-background"><FileDown size={15} /> Download PDF</a>
-          {props.status === "DRAFT" && (
-            <button onClick={() => confirm("Delete this draft proposal?") && run(() => deleteDraft(id))} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border hover:bg-red-50 hover:text-danger" aria-label="Delete draft"><Trash2 size={15} /></button>
-          )}
-          {!locked && (
-            <button onClick={() => void flush()} className="flex h-9 items-center gap-1.5 rounded-lg border border-brand px-3 text-sm text-brand hover:bg-brand-soft"><Save size={15} /> {props.status === "DRAFT" ? "Save as Draft" : "Save"}</button>
-          )}
-          {!locked && props.status !== "WITHDRAWN" && !props.expired && (
-            <button onClick={doSend} disabled={sending || pending} className="flex h-9 items-center gap-1.5 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-60">
-              {sending || pending ? "Sending…" : props.status === "DRAFT" ? "Send" : "Resend"} <Send size={14} />
-            </button>
-          )}
-        </div>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        {/* ---------- Left panel ---------- */}
-        <aside className="w-[460px] shrink-0 overflow-y-auto border-r border-border bg-[#f6f6f9] p-4">
-          {selected === null ? (
-            <div className="space-y-2.5">
-              <Stage n={1} title="Agreement" count={3} />
-              <Row done={!!state.title && !!state.validUntil} title="General" summary={<>• {term} • {start}</>} onClick={() => setSelected("general")} />
-              <Row done={ctx.lines.length > 0} n={2} title={servicesSection.title} badge={ctx.lines.length ? undefined : "Empty"} summary={ctx.lines.length ? `${ctx.lines.length} service${ctx.lines.length === 1 ? "" : "s"}` : "No services added"} onClick={() => setSelected(servicesSection.id)} />
-              <Row done title="Payments" summary={ctx.lines.length ? `${formatRand(dueNow(t))} due on acceptance${t.monthlyExVat ? ` · ${formatRand(monthlyTotal(t))}/mo` : ""}` : "Not required to sign"} onClick={() => setSelected(pricingSection.id)} />
-
-              <Stage n={2} title="Proposal" count={stage2.length + 1} />
-              <Row done title="Cover" summary={mergeFields(doc.cover.subtitle, mergeValues(live, doc), false) || "Cover page"} onClick={() => setSelected("cover")} />
-              {stage2.map((s) => {
-                const done = s.kind === "documents" ? s.files.length > 0 : s.kind === "perks" ? s.perks.length > 0 : !!snippet(s.html).trim();
-                const summary = s.kind === "documents" ? (s.files.length ? `${s.files.length} document${s.files.length === 1 ? "" : "s"}` : "No documents added") : s.kind === "perks" ? `${s.perks.length} perks shown to client` : snippet(s.html) || "Empty";
-                return <Row key={s.id} done={done} title={s.title} badge={OPTIONAL.includes(s.kind) ? "Optional" : undefined} hidden={s.hidden} summary={summary} onClick={() => setSelected(s.id)} />;
-              })}
-              {!locked && (
-                <button onClick={addSection} className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#c7cbe6] py-3 text-sm text-brand hover:bg-white">
-                  <Plus size={15} /> Add section
-                </button>
-              )}
-
-              <Stage n={3} title="Send" count={3} />
-              <Row done title="Theme" summary={<span className="inline-flex items-center gap-1.5">Theme color: <span className="inline-block h-3 w-3 rounded-sm" style={{ background: doc.theme.color }} /> {doc.theme.color}</span>} onClick={() => setSelected("theme")} />
-              <Row done={!!doc.email.subject && !!doc.email.body} title="Email" summary={mergeFields(doc.email.subject, mergeValues(live, doc), false)} onClick={() => setSelected("email")} />
-              <Row done={props.status !== "DRAFT"} title="Status & payments" summary={props.statusLabel} onClick={() => setSelected("status")} />
-
-              {props.canTemplate && !locked && (
-                <button
-                  onClick={() => confirm("Use this proposal's sections, wording, theme and email as the starting point for all new proposals?") && run(() => saveAsTemplate(id), () => alert("Saved. New proposals will start from this layout."))}
-                  className="mt-2 w-full rounded-lg py-2 text-xs text-muted hover:bg-white hover:text-brand"
-                >
-                  Save this layout as the template for new proposals
-                </button>
-              )}
-            </div>
-          ) : (
-            <div>
-              <button onClick={() => setSelected(null)} className="mb-3 flex items-center gap-1 text-sm text-muted hover:text-brand"><ChevronLeft size={16} /> All sections</button>
-              {selected === "general" && (
-                <Panel title="General">
-                  <Field label="Proposal title"><input value={state.title} disabled={locked} onChange={(e) => setState((s) => ({ ...s, title: e.target.value }))} className={inputClass} /></Field>
-                  <Field label="Agreement length">
-                    <select value={doc.general.termMonths ?? ""} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, general: { termMonths: e.target.value ? Number(e.target.value) : null } }))} className={inputClass}>
-                      {TERMS.map((m) => <option key={String(m)} value={m ?? ""}>{m ? `${m} month${m === 1 ? "" : "s"}` : "Ongoing (no fixed term)"}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Services start">
-                    <div className="flex gap-4 text-sm">
-                      <label className="flex items-center gap-1.5"><input type="radio" disabled={locked} checked={!state.startDate} onChange={() => setState((s) => ({ ...s, startDate: null }))} /> On acceptance</label>
-                      <label className="flex items-center gap-1.5"><input type="radio" disabled={locked} checked={!!state.startDate} onChange={() => setState((s) => ({ ...s, startDate: s.validUntil }))} /> On a date</label>
-                    </div>
-                    {state.startDate && <input type="date" value={state.startDate} disabled={locked} onChange={(e) => setState((s) => ({ ...s, startDate: e.target.value || null }))} className={`${inputClass} mt-2`} />}
-                  </Field>
-                  <Field label="Valid until"><input type="date" value={state.validUntil} disabled={locked} onChange={(e) => setState((s) => ({ ...s, validUntil: e.target.value }))} className={inputClass} /></Field>
-                  <p className="text-xs text-muted">Monthly retainers are charged from one month after the start date.</p>
-                </Panel>
-              )}
-              {selected === "cover" && (
-                <Panel title="Cover">
-                  <Field label="Line above the client's name"><input value={doc.cover.heading} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, cover: { ...d.cover, heading: e.target.value } }))} className={inputClass} /></Field>
-                  <Field label="Subtitle (under the client's name)"><input value={doc.cover.subtitle} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, cover: { ...d.cover, subtitle: e.target.value } }))} className={inputClass} /></Field>
-                  <Field label="Tagline (under your firm name)"><input value={doc.cover.tagline} disabled={locked} placeholder="e.g. Practice proposal" onChange={(e) => setDoc((d) => ({ ...d, cover: { ...d.cover, tagline: e.target.value } }))} className={inputClass} /></Field>
-                  <Field label="Curated with care by"><input value={doc.cover.preparedBy} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, cover: { ...d.cover, preparedBy: e.target.value } }))} className={inputClass} /></Field>
-                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={locked} checked={doc.cover.showLogo} onChange={(e) => setDoc((d) => ({ ...d, cover: { ...d.cover, showLogo: e.target.checked } }))} /> Show logo</label>
-                  <FieldHelp />
-                </Panel>
-              )}
-              {selected === "theme" && (
-                <Panel title="Theme">
-                  <Field label="Theme colour">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {ACCENTS.map((c) => <Swatch key={c} color={c} active={doc.theme.color === c} disabled={locked} onClick={() => setDoc((d) => ({ ...d, theme: { ...d.theme, color: c } }))} />)}
-                      <input type="color" value={doc.theme.color} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, theme: { ...d.theme, color: e.target.value } }))} className="h-8 w-10 cursor-pointer" aria-label="Custom theme colour" />
-                    </div>
-                  </Field>
-                  <Field label="Page background">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {BACKGROUNDS.map((c) => <Swatch key={c} color={c} active={doc.theme.background === c} disabled={locked} onClick={() => setDoc((d) => ({ ...d, theme: { ...d.theme, background: c } }))} />)}
-                      <input type="color" value={doc.theme.background} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, theme: { ...d.theme, background: e.target.value } }))} className="h-8 w-10 cursor-pointer" aria-label="Custom background colour" />
-                    </div>
-                  </Field>
-                  <Field label="Font">
-                    <select value={doc.theme.font} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, theme: { ...d.theme, font: e.target.value as FontKey } }))} className={inputClass}>
-                      {Object.entries(FONTS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Logo">
-                    <LogoPicker fileId={doc.theme.logoFileId} disabled={locked} onChange={(logoFileId) => setDoc((d) => ({ ...d, theme: { ...d.theme, logoFileId } }))} />
-                  </Field>
-                </Panel>
-              )}
-              {selected === "email" && (
-                <Panel title="Email">
-                  <Field label="Subject"><input value={doc.email.subject} disabled={locked} onChange={(e) => setDoc((d) => ({ ...d, email: { ...d.email, subject: e.target.value } }))} className={inputClass} /></Field>
-                  <Field label="Message">
-                    <textarea value={doc.email.body} disabled={locked} rows={14} onChange={(e) => setDoc((d) => ({ ...d, email: { ...d.email, body: e.target.value } }))} className={`${inputClass} font-mono text-[13px]`} />
-                  </Field>
-                  <p className="text-xs text-muted">Put <code className="rounded bg-white px-1">{"{{proposalButton}}"}</code> on its own line where the &quot;View your proposal&quot; button should go. The email is sent from your Gmail when you click Send.</p>
-                  <FieldHelp onInsert={locked ? undefined : (k) => setDoc((d) => ({ ...d, email: { ...d.email, body: `${d.email.body}{{${k}}}` } }))} />
-                </Panel>
-              )}
-              {selected === "status" && <Panel title="Status & payments">{props.statusPanel}<p className="text-[11px] text-muted">Payments: {props.paymentMode}</p></Panel>}
-
-              {section && (
-                <Panel title={KIND_LABELS[section.kind] === section.title ? section.title : `${section.title}`}>
-                  <Field label="Page title">
-                    <input value={section.title} disabled={locked} onChange={(e) => patchSection(section.id, { title: e.target.value })} className={inputClass} />
-                  </Field>
-                  {!locked && (
-                    <div className="flex flex-wrap gap-2">
-                      <SmallBtn onClick={() => moveSection(section.id, -1)} disabled={doc.sections[0]?.id === section.id}><ArrowUp size={13} /> Move up</SmallBtn>
-                      <SmallBtn onClick={() => moveSection(section.id, 1)} disabled={doc.sections.at(-1)?.id === section.id}><ArrowDown size={13} /> Move down</SmallBtn>
-                      {!REQUIRED_KINDS.includes(section.kind) && (
-                        <SmallBtn onClick={() => patchSection(section.id, { hidden: !section.hidden })}>{section.hidden ? <><Eye size={13} /> Show to client</> : <><EyeOff size={13} /> Hide from client</>}</SmallBtn>
-                      )}
-                      {section.kind === "custom" && <SmallBtn onClick={() => removeSection(section.id)} danger><Trash2 size={13} /> Delete</SmallBtn>}
-                    </div>
-                  )}
-                  {section.hidden && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Hidden: the client won&apos;t see this page.</p>}
-
-                  {section.kind === "services" && <LinesPanel id={id} lines={ctx.lines} locked={locked} vat={ctx.vatRate} services={props.services} packages={props.packages} />}
-                  {section.kind === "pricing" && (
-                    <div className="space-y-1.5 rounded-xl bg-white p-4 text-sm">
-                      {t.onceOffExVat > 0 && <div className="flex justify-between"><span className="text-muted">Once-off</span><span>{formatRand(t.onceOffExVat + t.onceOffVat)}</span></div>}
-                      {t.monthlyExVat > 0 && <div className="flex justify-between"><span className="text-muted">Monthly</span><span>{formatRand(monthlyTotal(t))}</span></div>}
-                      <div className="flex justify-between border-t border-border pt-2 font-semibold"><span>Due on acceptance</span><span>{formatRand(dueNow(t))}</span></div>
-                      <p className="pt-1 text-xs text-muted">Prices come from the Services section. Type payment notes (e.g. EFT details) on the page →</p>
-                    </div>
-                  )}
-                  {section.kind === "perks" && <PerksPanel section={section} locked={locked} onChange={(perks) => patchSection(section.id, { perks })} />}
-                  {section.kind === "documents" && <DocsPanel section={section} locked={locked} onChange={(files) => patchSection(section.id, { files })} />}
-                  {section.kind !== "services" && !locked && (
-                    <p className="rounded-lg bg-white px-3 py-2.5 text-xs text-muted">Click on the page to type. Use the toolbar like in Word: fonts, sizes, colours, tables, pictures. <strong>Insert field</strong> adds details that fill in by themselves, like the client&apos;s name.</p>
-                  )}
-                </Panel>
-              )}
-            </div>
-          )}
-        </aside>
-
-        {/* ---------- Canvas ---------- */}
-        <section className="flex min-w-0 flex-1 flex-col p-4">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-white">
-            <nav className="flex shrink-0 justify-center gap-1 overflow-x-auto border-b border-border px-3">
-              <Tab active={canvasKey === "cover"} onClick={() => setSelected("cover")}>Cover</Tab>
-              {visible.map((s) => <Tab key={s.id} active={canvasKey === s.id} onClick={() => setSelected(s.id)}>{s.title}</Tab>)}
-              {section?.hidden && <Tab active onClick={() => {}}><EyeOff size={12} className="mr-1 inline" />{section.title}</Tab>}
-              <Tab active={canvasKey === "email"} onClick={() => setSelected("email")}>Email</Tab>
-            </nav>
-            <div className="min-h-0 flex-1 overflow-y-auto" style={{ ...themeStyle(doc), background: doc.theme.background }}>
-              {section && section.kind !== "services" ? (
-                <RichCanvas key={section.id} section={section} doc={doc} ctx={live} locked={locked} index={visible.findIndex((s) => s.id === section.id) + 1} onHtml={(html) => patchSection(section.id, { html })} />
-              ) : section ? (
-                <div className="p-6"><PageFrame id={pageAnchor(section.id)}><SectionHeading title={section.title} index={visible.findIndex((s) => s.id === section.id) + 1} /><SectionExtras section={section} ctx={live} doc={doc} position="before" /></PageFrame></div>
-              ) : canvasKey === "email" ? (
-                <EmailPreview doc={doc} ctx={live} />
-              ) : (
-                <div className="p-6"><CoverPage doc={doc} ctx={live} onRead="#" /></div>
-              )}
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Canvas pieces ----------
-
-function RichCanvas({ section, doc, ctx, locked, index, onHtml }: { section: DocSection; doc: ProposalDoc; ctx: DocContext; locked: boolean; index: number; onHtml: (html: string) => void }) {
-  const editor = useDocEditor({ html: section.html, editable: !locked, onChange: onHtml, placeholder: "Click here and start typing…" });
+  const selected = selectedId ? locate(selectedId)?.block ?? null : null;
+  const ribbonEditor = selected?.type === "text" && editor && !editor.isDestroyed ? editor : null;
   const imageUpload = useCallback(async (file: File) => {
     const r = await upload(file, "image");
     return "error" in r ? { error: r.error } : { url: r.url };
   }, []);
-  return (
-    <>
-      {!locked && (
-        <div className="sticky top-0 z-20 border-b border-border bg-white/95 px-3 py-1.5 backdrop-blur">
-          <Ribbon editor={editor} onUpload={imageUpload} />
-        </div>
-      )}
-      <div className="p-6">
-        <PageFrame id={pageAnchor(section.id)}>
-          <SectionHeading title={section.title} index={index > 0 ? index : undefined} />
-          <SectionExtras section={section} ctx={ctx} doc={doc} position="before" />
-          <div className={locked ? "" : "rounded-lg ring-1 ring-transparent transition focus-within:ring-[color:var(--p-accent)]/30 hover:ring-[#e4e2dc]"}>
-            <DocEditorContent editor={editor} />
-          </div>
-          <SectionExtras section={section} ctx={ctx} doc={doc} position="after" />
-        </PageFrame>
-      </div>
-    </>
-  );
-}
 
-function EmailPreview({ doc, ctx }: { doc: ProposalDoc; ctx: DocContext }) {
-  const v = mergeValues(ctx, doc);
-  const body = mergeFields(doc.email.body, v, false);
-  const paras = (body.includes("{{proposalButton}}") ? body : `${body}\n\n{{proposalButton}}`).split(/\n{2,}/);
-  return (
-    <div className="p-6">
-      <div className="mx-auto max-w-[620px] overflow-hidden rounded-2xl bg-white shadow-sm">
-        <div className="border-b border-border px-6 py-4 text-sm">
-          <div className="text-muted">To: <span className="text-foreground">{ctx.contactName}</span></div>
-          <div className="mt-1 font-semibold">{mergeFields(doc.email.subject, v, false)}</div>
-        </div>
-        <div className="space-y-3 px-6 py-5 text-[15px] leading-relaxed">
-          {paras.map((p, i) =>
-            p.trim() === "{{proposalButton}}" ? (
-              <span key={i} className="inline-block rounded-lg px-4 py-2.5 text-sm font-semibold text-white" style={{ background: doc.theme.color }}>View your proposal</span>
-            ) : (
-              <p key={i} className="whitespace-pre-wrap">{p.trim()}</p>
-            ),
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+  const insertVariable = (key: string) => {
+    const token = `{{${key}}}`;
+    if (selected?.type === "text" && editor && !editor.isDestroyed) {
+      editor.chain().focus().insertContent(token).run();
+      return "Inserted";
+    }
+    if (selected?.type === "heading") {
+      patchBlock(selected.id, { text: `${selected.text} ${token}`.trim() });
+      return "Inserted";
+    }
+    void navigator.clipboard?.writeText(token);
+    return "Copied";
+  };
 
-// ---------- Left panel pieces ----------
+  const doSend = () =>
+    startSend(async () => {
+      if (!(await flush())) return;
+      run(() => send(id), () => setModal(null));
+    });
 
-function Stage({ n, title, count }: { n: number; title: string; count: number }) {
-  return (
-    <div className="flex items-center gap-3 pt-2">
-      <span className="rounded-md border border-border bg-white px-2 py-0.5 text-[10px] font-semibold tracking-wide">STAGE {n}</span>
-      <span className="text-sm font-medium">{title}</span>
-      <span className="text-xs text-muted">· {count} sections</span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
-}
+  const filtered = ELEMENTS.filter((e) => `${e.label} ${e.hint}`.toLowerCase().includes(search.toLowerCase()));
+  const pageCount = doc.pages.length;
 
-function Row({ done, n, title, summary, badge, hidden, onClick }: { done: boolean; n?: number; title: string; summary: React.ReactNode; badge?: string; hidden?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-4 py-3.5 text-left transition hover:border-[#c7cbe6] hover:shadow-sm">
-      {done ? (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"><Check size={14} strokeWidth={3} /></span>
-      ) : (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border text-[11px] text-muted">{n ?? "!"}</span>
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          {title}
-          {badge && <span className={`rounded-full border px-2 text-[11px] font-normal ${badge === "Empty" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-border text-muted"}`}>{badge}</span>}
-          {hidden && <span className="inline-flex items-center gap-1 text-[11px] font-normal text-muted"><EyeOff size={11} /> Hidden</span>}
+    <div className="fixed inset-0 z-40 flex flex-col bg-[#f7f8fc]">
+      {toast}
+      {/* ---------- Breadcrumb ---------- */}
+      <div className="flex h-11 items-center gap-2 border-b border-border bg-white px-4 text-xs text-muted">
+        <Link href={props.backHref} className="flex items-center gap-1 hover:text-brand"><ArrowLeft size={14} /> Back</Link>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Link href="/proposals" className="hover:text-brand">Proposals</Link>
+        <ChevronRight size={12} />
+        <span className="text-brand">{locked ? "View" : "Edit"}</span>
+        <span className="ml-3 rounded-md bg-background px-2 py-0.5 font-medium text-foreground">{props.number}</span>
+        <span className={props.status === "DRAFT" ? "text-[#f97316]" : "text-brand"}>• {props.statusLabel}</span>
+        <span className={`ml-auto ${save.status === "error" ? "text-danger" : ""}`} title={save.error}>
+          {locked ? "Signed proposals can't be edited" : save.status === "saving" ? "Saving…" : save.status === "dirty" ? "Unsaved changes" : save.status === "error" ? `Not saved: ${save.error}` : `All changes saved · ${savedFmt.format(new Date(save.at))}`}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-muted">{summary}</span>
-      </span>
-      <ChevronRight size={16} className="shrink-0 text-muted" />
-    </button>
-  );
-}
+      </div>
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-4">
-      <h2 className="text-base font-semibold">{title}</h2>
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block text-xs font-medium text-muted">
-      <span className="mb-1 block">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function SmallBtn({ onClick, disabled, danger, children }: { onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`flex items-center gap-1 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs hover:bg-background disabled:opacity-40 ${danger ? "text-danger" : ""}`}>
-      {children}
-    </button>
-  );
-}
-
-function Swatch({ color, active, disabled, onClick }: { color: string; active: boolean; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button type="button" disabled={disabled} onClick={onClick} title={color} className={`h-8 w-8 rounded-lg border ${active ? "ring-2 ring-brand ring-offset-2" : "border-black/10"}`} style={{ background: color }} />
-  );
-}
-
-function FieldHelp({ onInsert }: { onInsert?: (key: string) => void }) {
-  return (
-    <details className="rounded-lg bg-white px-3 py-2 text-xs">
-      <summary className="cursor-pointer font-medium text-muted">Fields you can use</summary>
-      <ul className="mt-2 space-y-1">
-        {MERGE_FIELDS.map((f) => (
-          <li key={f.key} className="flex items-center justify-between gap-2">
-            <code className="text-[11px]">{`{{${f.key}}}`}</code>
-            <span className="flex-1 text-muted">{f.label}</span>
-            {onInsert && <button type="button" onClick={() => onInsert(f.key)} className="text-brand">Insert</button>}
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-function LogoPicker({ fileId, disabled, onChange }: { fileId: string | null; disabled: boolean; onChange: (id: string | null) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="flex items-center gap-3">
-      {fileId ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/assets/${fileId}`} alt="Logo" className="h-14 w-14 rounded-full border border-border bg-white object-contain p-1" />
-      ) : (
-        <span className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-border text-[11px] text-muted">No logo</span>
-      )}
-      {!disabled && (
-        <>
-          <SmallBtn onClick={() => ref.current?.click()} disabled={busy}><Upload size={13} /> {busy ? "Uploading…" : fileId ? "Change" : "Upload"}</SmallBtn>
-          {fileId && <SmallBtn onClick={() => onChange(null)}><X size={13} /> Remove</SmallBtn>}
-          <input
-            ref={ref}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            hidden
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (!f) return;
-              setBusy(true);
-              const r = await upload(f, "image");
-              setBusy(false);
-              if ("error" in r) alert(r.error);
-              else onChange(r.id);
-            }}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
-function PerksPanel({ section, locked, onChange }: { section: DocSection; locked: boolean; onChange: (perks: DocSection["perks"]) => void }) {
-  const set = (i: number, patch: Partial<DocSection["perks"][number]>) => onChange(section.perks.map((p, j) => (j === i ? { ...p, ...patch } : p)));
-  return (
-    <div className="space-y-2">
-      {section.perks.map((p, i) => (
-        <div key={p.id} className="space-y-1.5 rounded-xl border border-border bg-white p-3">
-          <div className="flex gap-2">
-            <input value={p.title} disabled={locked} onChange={(e) => set(i, { title: e.target.value })} placeholder="Perk" aria-label="Perk title" className={`${inputClass} font-medium`} />
-            {!locked && <button type="button" onClick={() => onChange(section.perks.filter((_, j) => j !== i))} className="text-muted hover:text-danger" aria-label="Remove perk"><Trash2 size={15} /></button>}
-          </div>
-          <textarea value={p.text} disabled={locked} rows={2} onChange={(e) => set(i, { text: e.target.value })} placeholder="Short description" aria-label="Perk description" className={`${inputClass} text-xs`} />
-        </div>
-      ))}
-      {!locked && section.perks.length < 20 && (
-        <SmallBtn onClick={() => onChange([...section.perks, { id: Math.random().toString(36).slice(2, 10), title: "New perk", text: "" }])}><Plus size={13} /> Add perk</SmallBtn>
-      )}
-    </div>
-  );
-}
-
-function DocsPanel({ section, locked, onChange }: { section: DocSection; locked: boolean; onChange: (files: DocSection["files"]) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="space-y-2">
-      {section.files.map((f) => (
-        <div key={f.id} className="flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2.5 text-sm">
-          <FileText size={15} className="text-brand" />
-          <a href={`/api/assets/${f.id}`} target="_blank" className="flex-1 truncate hover:underline">{f.name}</a>
-          {!locked && <button type="button" onClick={() => onChange(section.files.filter((x) => x.id !== f.id))} className="text-muted hover:text-danger" aria-label={`Remove ${f.name}`}><Trash2 size={14} /></button>}
-        </div>
-      ))}
-      {!section.files.length && <p className="text-xs text-muted">No documents yet. Add brochures, engagement letters or price lists for the client to download.</p>}
-      {!locked && (
-        <>
-          <SmallBtn onClick={() => ref.current?.click()} disabled={busy}><Upload size={13} /> {busy ? "Uploading…" : "Upload document"}</SmallBtn>
-          <input
-            ref={ref}
-            type="file"
-            hidden
-            accept=".pdf,.docx,.xlsx,image/png,image/jpeg,image/webp"
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (!f) return;
-              setBusy(true);
-              const r = await upload(f, "document");
-              setBusy(false);
-              if ("error" in r) alert(r.error);
-              else onChange([...section.files, { id: r.id, name: r.name }]);
-            }}
-          />
-          <p className="text-[11px] text-muted">Anyone with the proposal link can download these.</p>
-        </>
-      )}
-    </div>
-  );
-}
-
-function LinesPanel({ id, lines, locked, vat, services, packages }: { id: string; lines: DocLine[]; locked: boolean; vat: number; services: Option[]; packages: Option[] }) {
-  const { run, pending, toast } = useAction();
-  return (
-    <div className="space-y-2">
-      {toast}
-      {lines.map((l) => <LineCard key={`${l.id}-${l.unitPriceCents}-${l.quantity}-${l.name}-${l.description}`} line={l} locked={locked} vat={vat} />)}
-      {!lines.length && <p className="rounded-xl border border-dashed border-border bg-white py-6 text-center text-sm text-muted">No services yet. Add one below.</p>}
-      {!locked && (
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <select value="" disabled={pending} onChange={(e) => e.target.value && run(() => addServiceLine(id, e.target.value))} className={`${inputClass} col-span-2`} aria-label="Add service">
-            <option value="">+ Add a service from your list…</option>
-            {services.map((s) => <option key={s.id} value={s.id}>{s.name}: {formatRand(s.priceCents ?? 0)}{s.billingType === "MONTHLY" ? "/mo" : ""}</option>)}
-          </select>
-          {packages.length > 0 && (
-            <select value="" disabled={pending} onChange={(e) => e.target.value && run(() => addPackageLines(id, e.target.value))} className={`${inputClass} col-span-2`} aria-label="Add package">
-              <option value="">+ Add a package…</option>
-              {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+      {/* ---------- Toolbar ---------- */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-white px-4 py-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-white"><FileText size={16} /></span>
+        <input
+          value={state.title}
+          disabled={locked}
+          onChange={(e) => setState((s) => ({ ...s, title: e.target.value }))}
+          aria-label="Proposal title"
+          className="h-8 w-64 rounded-lg border border-border px-3 text-sm focus:border-brand focus:outline-none disabled:bg-background"
+        />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-brand px-3 py-1 text-[11px] font-medium text-white">Proposal loaded (Total: {formatRand(dueNow(totals))})</span>
+          {!locked && (
+            <>
+              <TopBtn icon={Settings2} onClick={() => setModal("header")}>Header &amp; Footer</TopBtn>
+              <TopBtn icon={LayoutTemplate} onClick={() => setModal("templates")}>Templates</TopBtn>
+              <TopBtn icon={Library} onClick={() => setModal("library")}>Library</TopBtn>
+              <TopBtn icon={Braces} onClick={() => setModal("variables")}>Variables</TopBtn>
+            </>
           )}
-          <SmallBtn onClick={() => run(() => addCustomLine(id, "ONCE_OFF"))} disabled={pending}><Plus size={13} /> Custom once-off</SmallBtn>
-          <SmallBtn onClick={() => run(() => addCustomLine(id, "MONTHLY"))} disabled={pending}><Plus size={13} /> Custom monthly</SmallBtn>
+          <a href={`/proposal-preview/${id}`} target="_blank" className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs hover:bg-background"><Eye size={14} /> Preview</a>
+          {!locked && (
+            <>
+              <button onClick={() => void flush()} className="flex h-8 items-center gap-1.5 rounded-lg border border-brand px-3 text-xs font-medium text-brand hover:bg-brand-soft"><Save size={14} /> Save Proposal</button>
+              {!props.expired && props.status !== "WITHDRAWN" && (
+                <button onClick={() => setModal("send")} className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-medium text-white hover:bg-brand-hover"><Send size={14} /> {props.status === "DRAFT" ? "Send" : "Resend"}</button>
+              )}
+            </>
+          )}
+          <div className="relative">
+            <button onClick={() => setMenu(!menu)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border hover:bg-background" aria-label="More"><EllipsisVertical size={15} /></button>
+            {menu && (
+              <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-border bg-white p-1.5 text-sm shadow-xl" onMouseLeave={() => setMenu(false)}>
+                <MenuItem onClick={() => { setModal("details"); setMenu(false); }}>Proposal details & dates</MenuItem>
+                <MenuItem onClick={() => { setModal("status"); setMenu(false); }}>Status, payments & signature</MenuItem>
+                <a href={`/proposal-preview/${id}?print=1`} target="_blank" className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-background"><FileDown size={14} /> Download PDF</a>
+                {props.status === "DRAFT" && <MenuItem danger onClick={() => confirm("Delete this draft proposal?") && run(() => deleteDraft(id))}>Delete draft</MenuItem>}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => { setDrop(null); setDragging(null); }}>
+        <div className="flex min-h-0 flex-1">
+          {/* ---------- Left panel ---------- */}
+          <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-border bg-white">
+            {selected && !locked ? (
+              <div className="p-4">
+                <button onClick={() => setSelectedId(null)} className="mb-3 flex items-center gap-1 text-xs text-muted hover:text-brand"><ArrowLeft size={13} /> Elements</button>
+                <PropertiesPanel
+                  key={selected.id}
+                  block={selected}
+                  onChange={(patch) => patchBlock(selected.id, patch)}
+                  onDuplicate={() => duplicateBlock(selected.id)}
+                  onDelete={() => removeBlock(selected.id)}
+                  onSaveToLibrary={() => saveToLibrary(selected)}
+                  proposalId={id}
+                  lines={ctx.lines}
+                  vatRate={ctx.vatRate}
+                  services={props.services}
+                  packages={props.packages}
+                  firmPackages={props.firmPackages}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-border px-4 py-4">
+                  <h2 className="text-sm font-semibold">Document Builder</h2>
+                  <p className="text-xs text-muted">{locked ? "This proposal is signed and locked." : "Drag elements to your document, or click to add"}</p>
+                </div>
+                {!locked && (
+                  <div className="space-y-5 p-4">
+                    <div className="flex overflow-hidden rounded-lg border border-border">
+                      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search elements..." className="min-w-0 flex-1 px-3 py-2 text-sm focus:outline-none" aria-label="Search elements" />
+                      <span className="flex w-9 items-center justify-center bg-brand text-white"><Search size={14} /></span>
+                    </div>
+                    {(["Text Elements", "Form Elements", "Business Elements"] as const).map((g) => {
+                      const items = filtered.filter((e) => e.group === g);
+                      if (!items.length) return null;
+                      return (
+                        <div key={g}>
+                          <h3 className="mb-2 text-xs font-semibold">{g}</h3>
+                          <div className="grid grid-cols-2 gap-2">
+                            {items.map((e) => <PaletteItem key={e.type} type={e.type} label={e.label} hint={e.hint} onAdd={() => insertBlock(newBlock(e.type))} />)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </aside>
+
+          {/* ---------- Canvas ---------- */}
+          <main className="flex min-w-0 flex-1 flex-col">
+            {!locked && (
+              <div className="z-20 border-b border-border bg-white px-3 py-1.5">
+                <Ribbon editor={ribbonEditor} onUpload={imageUpload} />
+              </div>
+            )}
+            <div
+              className="min-h-0 flex-1 overflow-auto bg-[#eef0f7] bg-[radial-gradient(#cdd2e1_1px,transparent_1px)] [background-size:16px_16px] px-6 py-8"
+              onMouseDown={(e) => e.target === e.currentTarget && setSelectedId(null)}
+              style={themeStyle(doc)}
+            >
+              <div className="mx-auto max-w-full space-y-4" style={{ width: doc.pages.some((p) => p.orientation === "landscape") ? 1123 : 794 }}>
+                {doc.pages.map((page, pi) => (
+                  <div key={page.id} className="space-y-3">
+                    {!locked && (
+                      <div className="flex items-center gap-2">
+                        <PageBtn label="Move page up" disabled={pi === 0} onClick={() => movePage(pi, -1)}><ArrowUp size={13} /></PageBtn>
+                        <PageBtn label="Move page down" disabled={pi === pageCount - 1} onClick={() => movePage(pi, 1)}><ArrowDown size={13} /></PageBtn>
+                        <button
+                          onClick={() => setPages((pages) => pages.map((p) => (p.id === page.id ? { ...p, orientation: p.orientation === "portrait" ? "landscape" : "portrait" } : p)))}
+                          className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-white px-3 text-[11px] hover:border-brand"
+                          title="Switch portrait / landscape"
+                        >
+                          <FileText size={12} /> A4 · {page.orientation === "portrait" ? "Portrait" : "Landscape"}
+                        </button>
+                        <span className="text-[11px] text-muted">Page {pi + 1} of {pageCount}</span>
+                        <span className="flex-1" />
+                        <PageBtn label="Add a page after this one" onClick={() => addPage(pi)}><Plus size={14} /></PageBtn>
+                        <span className="flex-1" />
+                        <PageMenu
+                          onDuplicate={() => setPages((pages) => [...pages.slice(0, pi + 1), clonePage(page), ...pages.slice(pi + 1)])}
+                          onDelete={pageCount > 1 ? () => (!page.blocks.length || confirm("Delete this page and everything on it?")) && setPages((pages) => pages.filter((p) => p.id !== page.id)) : undefined}
+                        />
+                      </div>
+                    )}
+                    <div onMouseDown={() => setActivePageId(page.id)}>
+                      <Sheet page={page} index={pi} total={pageCount} doc={doc} values={values} className={activePageId === page.id && !locked ? "outline outline-2 outline-offset-4 outline-[#c7cbe6]" : ""}>
+                        <PageBody pageId={page.id} empty={!page.blocks.length} locked={locked} showEndLine={drop?.pageId === page.id && drop.index === page.blocks.length && page.blocks.length > 0}>
+                          {page.blocks.map((b, bi) => (
+                            <div key={b.id}>
+                              {drop?.pageId === page.id && drop.index === bi && <DropLine />}
+                              {locked ? (
+                                <BlockView block={b} values={values} lines={ctx.lines} vatRate={ctx.vatRate} responses={props.responses} />
+                              ) : (
+                                <BlockShell
+                                  block={b}
+                                  pageId={page.id}
+                                  selected={selectedId === b.id}
+                                  onSelect={() => { setSelectedId(b.id); setActivePageId(page.id); }}
+                                  onUp={() => nudgeBlock(b.id, -1)}
+                                  onDown={() => nudgeBlock(b.id, 1)}
+                                  onDuplicate={() => duplicateBlock(b.id)}
+                                  onLibrary={() => saveToLibrary(b)}
+                                  onDelete={() => removeBlock(b.id)}
+                                >
+                                  <EditableBlock block={b} values={values} ctx={ctx} onPatch={(patch) => patchBlock(b.id, patch)} onFocusEditor={setEditor} />
+                                </BlockShell>
+                              )}
+                            </div>
+                          ))}
+                        </PageBody>
+                      </Sheet>
+                    </div>
+                  </div>
+                ))}
+                {!locked && (
+                  <button onClick={() => addPage(pageCount - 1)} className="flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-[#c7cbe6] py-4 text-sm text-brand hover:bg-white">
+                    <Plus size={15} /> Add page
+                  </button>
+                )}
+              </div>
+            </div>
+          </main>
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {dragging && (
+            <div className="flex items-center gap-2 rounded-lg border border-brand bg-white px-3 py-2 text-sm font-medium text-brand shadow-xl">
+              {(() => { const I = ICONS[dragging]; return <I size={15} />; })()} {ELEMENTS.find((e) => e.type === dragging)?.label}
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
+
+      {modal === "header" && <HeaderFooterModal doc={doc} setDoc={setDoc} onClose={() => setModal(null)} />}
+      {modal === "templates" && (
+        <TemplatesModal
+          templates={props.templates}
+          canManage={props.canManageTemplates}
+          onApply={(tpl) => {
+            if (!confirm("Replace this proposal's pages with the template? Services and prices are kept.")) return;
+            const source = tpl ?? props.builtInDoc;
+            setDoc(() => ({ ...structuredClone(source), pages: source.pages.map(clonePage) }));
+            setSelectedId(null);
+            setModal(null);
+          }}
+          onSave={(name, makeDefault) => run(() => saveTemplate({ name, doc, makeDefault }), () => alert(`Saved the template "${name}".`))}
+          onSetDefault={(tid) => run(() => setDefaultTemplate(tid))}
+          onDelete={(tid) => run(() => deleteTemplate(tid))}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === "library" && (
+        <LibraryModal
+          library={props.library}
+          onInsert={(b) => { insertBlock(cloneBlock(b)); setModal(null); }}
+          onDelete={(lid) => run(() => deleteLibraryBlock(lid))}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === "variables" && <VariablesModal values={values} onInsert={insertVariable} onClose={() => setModal(null)} />}
+      {modal === "send" && (
+        <SendModal doc={doc} setDoc={setDoc} to={props.contactEmail} values={{ ...values, senderName: values.senderName }} issues={issues} sending={sending || pending} isDraft={props.status === "DRAFT"} onSend={doSend} onClose={() => setModal(null)} />
+      )}
+      {modal === "details" && (
+        <DetailsModal title={state.title} validUntil={state.validUntil} startDate={state.startDate} locked={locked} onChange={(patch) => setState((s) => ({ ...s, ...patch }))} onClose={() => setModal(null)} />
+      )}
+      {modal === "status" && (
+        <Modal title="Status, payments & signature" onClose={() => setModal(null)}>
+          {props.statusPanel}
+          <p className="text-[11px] text-muted">Payments: {props.paymentMode}</p>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------- Pieces ----------
+
+function TopBtn({ icon: Icon, onClick, children }: { icon: LucideIcon; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs hover:bg-background">
+      <Icon size={14} /> {children}
+    </button>
+  );
+}
+
+function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+  return <button onClick={onClick} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-background ${danger ? "text-danger" : ""}`}>{children}</button>;
+}
+
+function PageBtn({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={label} aria-label={label} className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-white text-muted hover:border-brand hover:text-brand disabled:opacity-40">
+      {children}
+    </button>
+  );
+}
+
+function PageMenu({ onDuplicate, onDelete }: { onDuplicate: () => void; onDelete?: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <PageBtn label="Page options" onClick={() => setOpen(!open)}><EllipsisVertical size={14} /></PageBtn>
+      {open && (
+        <div className="absolute right-0 top-8 z-30 w-44 rounded-xl border border-border bg-white p-1.5 text-sm shadow-xl" onMouseLeave={() => setOpen(false)}>
+          <MenuItem onClick={() => { onDuplicate(); setOpen(false); }}><Copy size={14} /> Duplicate page</MenuItem>
+          {onDelete && <MenuItem danger onClick={() => { onDelete(); setOpen(false); }}><Trash2 size={14} /> Delete page</MenuItem>}
         </div>
       )}
     </div>
   );
 }
 
-function LineCard({ line, locked, vat }: { line: DocLine; locked: boolean; vat: number }) {
-  const { run, toast } = useAction();
-  const save = (patch: Parameters<typeof updateLine>[1]) => run(() => updateLine(line.id, patch));
-  const ex = line.quantity * line.unitPriceCents;
-  const total = ex + (line.taxable ? Math.round((ex * vat) / 100) : 0);
+function PaletteItem({ type, label, hint, onAdd }: { type: BlockType; label: string; hint: string; onAdd: () => void }) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id: `new:${type}`, data: { kind: "new", type } satisfies DragData });
+  const Icon = ICONS[type];
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-white p-3">
-      {toast}
-      <div className="flex gap-2">
-        <input defaultValue={line.name} disabled={locked} onBlur={(e) => e.target.value.trim() && e.target.value !== line.name && save({ name: e.target.value })} className={`${inputClass} font-medium`} aria-label="Service name" />
-        {!locked && <button type="button" onClick={() => run(() => removeLine(line.id))} className="text-muted hover:text-danger" aria-label={`Remove ${line.name}`}><Trash2 size={15} /></button>}
-      </div>
-      <textarea defaultValue={line.description ?? ""} disabled={locked} rows={2} placeholder="What's included (shown to the client)" onBlur={(e) => e.target.value !== (line.description ?? "") && save({ description: e.target.value || null })} className={`${inputClass} text-xs`} aria-label="Description" />
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <select value={line.billingType} disabled={locked} onChange={(e) => save({ billingType: e.target.value as BillingType })} className="h-8 rounded-lg border border-border bg-white px-2" aria-label="Billing">
-          <option value="ONCE_OFF">Once-off</option>
-          <option value="MONTHLY">Monthly</option>
-        </select>
-        <label className="flex items-center gap-1 text-muted">Qty <input type="number" min={1} defaultValue={line.quantity} disabled={locked} onBlur={(e) => Number(e.target.value) !== line.quantity && save({ quantity: Math.max(1, Number(e.target.value) || 1) })} className="h-8 w-14 rounded-lg border border-border px-2 text-right text-foreground" aria-label="Quantity" /></label>
-        <label className="flex items-center gap-1 text-muted">
-          R
-          <input
-            defaultValue={(line.unitPriceCents / 100).toFixed(2)}
-            disabled={locked}
-            onBlur={(e) => {
-              const c = parseRand(e.target.value);
-              if (c === null) return alert("Enter a valid price, e.g. 2500 or 2500.50");
-              if (c !== line.unitPriceCents) save({ price: e.target.value });
-            }}
-            className="h-8 w-24 rounded-lg border border-border px-2 text-right text-foreground"
-            aria-label="Unit price excl. VAT"
-          />
-        </label>
-        <label className="flex items-center gap-1 text-muted"><input type="checkbox" checked={line.taxable} disabled={locked} onChange={(e) => save({ taxable: e.target.checked })} /> VAT</label>
-        <span className="ml-auto font-semibold text-foreground">{formatRand(total)}{line.billingType === "MONTHLY" && <span className="font-normal text-muted">/mo</span>}</span>
+    <button
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      onClick={onAdd}
+      title={`Drag onto a page, or click to add`}
+      className={`flex items-start gap-2 rounded-lg border border-border p-2.5 text-left transition hover:border-brand hover:shadow-sm ${isDragging ? "opacity-40" : ""}`}
+    >
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand"><Icon size={13} /></span>
+      <span className="min-w-0">
+        <span className="block text-xs font-medium">{label}</span>
+        <span className="block truncate text-[10px] text-muted">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
+function PageBody({ pageId, empty, locked, showEndLine, children }: { pageId: string; empty: boolean; locked: boolean; showEndLine: boolean; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `page:${pageId}`, data: { kind: "page", pageId } satisfies DragData, disabled: locked });
+  return (
+    <div ref={setNodeRef} className="min-h-[240px] space-y-4">
+      {children}
+      {showEndLine && <DropLine />}
+      {empty && !locked && (
+        <div className={`flex h-48 flex-col items-center justify-center rounded-xl border-2 border-dashed text-sm ${isOver ? "border-[color:var(--p-accent)] bg-[color-mix(in_srgb,var(--p-accent)_5%,white)]" : "border-[#d9dcea] text-muted"}`}>
+          <Plus size={18} className="mb-1" /> Drag elements here
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DropLine = () => <div className="my-1 h-1 rounded-full" style={{ background: "var(--p-accent)" }} />;
+
+function BlockShell({ block, pageId, selected, onSelect, onUp, onDown, onDuplicate, onLibrary, onDelete, children }: {
+  block: Block;
+  pageId: string;
+  selected: boolean;
+  onSelect: () => void;
+  onUp: () => void;
+  onDown: () => void;
+  onDuplicate: () => void;
+  onLibrary: () => void;
+  onDelete: () => void;
+  children: React.ReactNode;
+}) {
+  const drag = useDraggable({ id: block.id, data: { kind: "block", pageId } satisfies DragData });
+  const dropzone = useDroppable({ id: block.id, data: { kind: "block", pageId } satisfies DragData });
+  const tool = "flex h-7 w-7 items-center justify-center rounded-md text-[#4b5563] hover:bg-[#eef0ff] hover:text-[#2d3fd3]";
+  return (
+    <div ref={dropzone.setNodeRef} className="group relative" onMouseDown={onSelect}>
+      <div
+        ref={drag.setNodeRef}
+        className={`relative rounded-md transition ${selected ? "ring-2 ring-[color:var(--p-accent)] ring-offset-[6px]" : "hover:ring-1 hover:ring-[#c7cbe6] hover:ring-offset-[6px]"} ${drag.isDragging ? "opacity-30" : ""}`}
+      >
+        <button
+          {...drag.listeners}
+          {...drag.attributes}
+          className="absolute -left-9 top-0 flex h-7 w-6 cursor-grab items-center justify-center rounded text-[#9ca3af] opacity-0 hover:bg-[#eef0ff] hover:text-[#2d3fd3] group-hover:opacity-100 active:cursor-grabbing"
+          aria-label="Drag to move"
+          title="Drag to move"
+        >
+          <GripVertical size={15} />
+        </button>
+        {selected && (
+          <div className="absolute -top-11 right-0 z-10 flex items-center gap-0.5 rounded-lg border border-border bg-white p-0.5 shadow-md" onMouseDown={(e) => e.stopPropagation()}>
+            <button className={tool} onClick={onUp} title="Move up" aria-label="Move block up"><ArrowUp size={14} /></button>
+            <button className={tool} onClick={onDown} title="Move down" aria-label="Move block down"><ArrowDown size={14} /></button>
+            <button className={tool} onClick={onDuplicate} title="Duplicate" aria-label="Duplicate block"><Copy size={14} /></button>
+            <button className={tool} onClick={onLibrary} title="Save to library" aria-label="Save block to library"><Bookmark size={14} /></button>
+            <button className={`${tool} hover:text-[#dc2626]`} onClick={onDelete} title="Delete" aria-label="Delete block"><Trash2 size={14} /></button>
+          </div>
+        )}
+        {children}
       </div>
     </div>
   );
 }
 
-function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function EditableBlock({ block, values, ctx, onPatch, onFocusEditor }: { block: Block; values: Record<string, string>; ctx: DocContext; onPatch: (p: Partial<Block>) => void; onFocusEditor: (e: Editor) => void }) {
+  if (block.type === "heading") return <HeadingEditor block={block} onPatch={onPatch} />;
+  if (block.type === "text") return <TextEditor block={block} onPatch={onPatch} onFocusEditor={onFocusEditor} />;
+  if (block.type === "image") return <BlockView block={block} values={values} lines={ctx.lines} vatRate={ctx.vatRate} imagePlaceholder={<ImageDrop onUploaded={(fileId) => onPatch({ fileId } as Partial<Block>)} />} />;
+  if (block.type === "packages" && !block.packages.length) {
+    return <div className="pointer-events-none"><BlockView block={block} values={values} lines={ctx.lines} vatRate={ctx.vatRate} /><p className="mt-1 text-center text-[11px] text-muted">Select this block and tick the packages to offer.</p></div>;
+  }
+  return <div className="pointer-events-none select-none"><BlockView block={block} values={values} lines={ctx.lines} vatRate={ctx.vatRate} /></div>;
+}
+
+const HEADING_CLS = { 1: "text-[28px] leading-tight", 2: "text-[21px]", 3: "text-base" } as const;
+
+function HeadingEditor({ block, onPatch }: { block: BlockOf<"heading">; onPatch: (p: Partial<Block>) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [block.text, block.level]);
   return (
-    <button onClick={onClick} className={`shrink-0 border-b-2 px-3 py-3 text-sm transition ${active ? "border-brand font-medium text-foreground" : "border-transparent text-muted hover:text-foreground"}`}>
-      {children}
+    <textarea
+      ref={ref}
+      value={block.text}
+      rows={1}
+      onChange={(e) => onPatch({ text: e.target.value } as Partial<Block>)}
+      aria-label="Heading"
+      className={`block w-full resize-none overflow-hidden bg-transparent font-semibold tracking-tight text-[#111827] focus:outline-none ${HEADING_CLS[block.level]} ${block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : "text-left"}`}
+    />
+  );
+}
+
+function TextEditor({ block, onPatch, onFocusEditor }: { block: BlockOf<"text">; onPatch: (p: Partial<Block>) => void; onFocusEditor: (e: Editor) => void }) {
+  const editor = useDocEditor({ html: block.html, editable: true, onChange: (html) => onPatch({ html } as Partial<Block>), onFocus: onFocusEditor, placeholder: "Type here…" });
+  return <DocEditorContent editor={editor} />;
+}
+
+function ImageDrop({ onUploaded }: { onUploaded: (fileId: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => ref.current?.click()}
+      className="flex h-36 w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-[#d9dcea] text-sm text-muted hover:border-[color:var(--p-accent)]"
+    >
+      <Upload size={18} /> {busy ? "Uploading…" : "Click to upload an image"}
+      <span className="text-[11px]">PNG, JPEG or WebP, up to 5 MB</span>
+      <input
+        ref={ref}
+        type="file"
+        hidden
+        accept="image/png,image/jpeg,image/webp"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          setBusy(true);
+          const r = await upload(f, "image");
+          setBusy(false);
+          if ("error" in r) alert(r.error);
+          else onUploaded(r.id);
+        }}
+      />
     </button>
   );
 }

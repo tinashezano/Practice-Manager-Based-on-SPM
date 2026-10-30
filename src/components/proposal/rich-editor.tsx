@@ -34,9 +34,11 @@ const HIGHLIGHTS = ["#fff2a8", "#ffd6a5", "#ffc9c9", "#c9f2c7", "#c7e3ff", "#e5d
 
 type Upload = (file: File) => Promise<{ url: string } | { error: string }>;
 
-export function useDocEditor({ html, editable, placeholder, onChange }: { html: string; editable: boolean; placeholder?: string; onChange: (html: string) => void }) {
+export function useDocEditor({ html, editable, placeholder, onChange, onFocus }: { html: string; editable: boolean; placeholder?: string; onChange: (html: string) => void; onFocus?: (editor: Editor) => void }) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
   const editor = useEditor({
     immediatelyRender: false,
     shouldRerenderOnTransaction: true,
@@ -52,9 +54,11 @@ export function useDocEditor({ html, editable, placeholder, onChange }: { html: 
       Placeholder.configure({ placeholder: placeholder ?? "Start typing…" }),
     ],
     onUpdate: ({ editor }) => onChangeRef.current(editor.isEmpty ? "" : editor.getHTML()),
+    onFocus: ({ editor }) => onFocusRef.current?.(editor),
   });
   useEffect(() => {
-    editor?.setEditable(editable);
+    // Without emitting an update, so opening a proposal does not count as an edit.
+    editor?.setEditable(editable, false);
   }, [editor, editable]);
   return editor;
 }
@@ -139,7 +143,7 @@ function styleValue(editor: Editor) {
 export function Ribbon({ editor, onUpload }: { editor: Editor | null; onUpload?: Upload }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  if (!editor) return <div className="h-11" />;
+  if (!editor || editor.isDestroyed) return <p className="flex h-8 items-center px-2 text-xs text-[#8a8ea8]">Click into a text block to format it: fonts, sizes, colours, lists, tables and pictures.</p>;
   const disabled = !editor.isEditable;
   const c = () => editor.chain().focus();
   const inTable = editor.isActive("table");

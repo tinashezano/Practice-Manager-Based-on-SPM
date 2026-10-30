@@ -1,23 +1,26 @@
 import type { FirmSettings, Proposal } from "@prisma/client";
-import type { DocContext } from "@/components/proposal/document";
 import { toISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { DEFAULT_TERMS, proposalNumber } from "@/lib/firm";
-import { defaultDoc, normalizeDoc, type ProposalDoc } from "@/lib/proposal-doc";
+import { defaultDoc, normalizeDoc, textToHtml, type DocContext, type ProposalDoc } from "@/lib/proposal-doc";
 import type { ProposalWithLines } from "@/lib/proposals";
 
-/** The firm's starting document for new proposals (Settings, or "Save as template"). */
-export function templateDoc(firm: FirmSettings): ProposalDoc {
-  return normalizeDoc(firm.proposalTemplate, () => defaultDoc(firm.proposalTerms || DEFAULT_TERMS));
+const builtIn = (firm: FirmSettings) => defaultDoc(firm.proposalTerms || DEFAULT_TERMS);
+
+/** What new proposals start from: the default template, else the older saved layout, else the built-in one. */
+export async function startingDoc(firm: FirmSettings): Promise<ProposalDoc> {
+  const tpl = await db.proposalTemplate.findFirst({ where: { isDefault: true }, orderBy: { updatedAt: "desc" } });
+  if (tpl) return normalizeDoc(tpl.doc, () => builtIn(firm));
+  return normalizeDoc(firm.proposalTemplate, () => builtIn(firm));
 }
 
-/** A proposal's document. Older proposals (before the builder) are converted on the fly. */
+/** A proposal's document. Older proposals (sections, or plain intro/terms) are converted on the fly. */
 export function proposalDoc(p: Pick<Proposal, "content" | "introduction" | "terms">, firm: FirmSettings): ProposalDoc {
   return normalizeDoc(p.content, () => {
-    const base = templateDoc(firm);
-    if (!p.introduction && !p.terms) return base;
-    const legacy = defaultDoc(p.terms || firm.proposalTerms || DEFAULT_TERMS, p.introduction);
-    return { ...base, sections: legacy.sections };
+    const doc = defaultDoc(p.terms || firm.proposalTerms || DEFAULT_TERMS);
+    const intro = doc.pages[0]!.blocks.at(-1);
+    if (p.introduction && intro?.type === "text") intro.html = textToHtml(p.introduction);
+    return doc;
   });
 }
 

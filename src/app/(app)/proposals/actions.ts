@@ -7,12 +7,11 @@ import { z } from "zod";
 import { parseISODate } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { logActivity } from "@/lib/deals";
-import { getFirmSettings, proposalNumber } from "@/lib/firm";
+import { proposalNumber } from "@/lib/firm";
 import { parseRand } from "@/lib/money";
 import { createProposal, recalcProposal, recordManualPayment, recordUploadedSignature, sendProposal } from "@/lib/proposals";
-import { docSchema } from "@/lib/proposal-doc";
-import { proposalDoc } from "@/lib/proposal-content";
-import { sanitizeDoc } from "@/lib/sanitize";
+import { blockSchema, docSchema } from "@/lib/proposal-doc";
+import { sanitizeBlock, sanitizeDoc } from "@/lib/sanitize";
 import { requirePermission } from "@/lib/session";
 import { saveFile } from "@/lib/storage";
 
@@ -142,15 +141,60 @@ export async function uploadProposalAsset(fd: FormData): Promise<{ ok: true; id:
   }
 }
 
-/** Makes this proposal's layout, wording and theme the starting point for new proposals. */
-export async function saveAsTemplate(id: string): Promise<Result> {
+// ---------- Templates & library ----------
+
+const templateName = z.string().trim().min(2, "Name the template").max(120);
+
+/** Saves a layout as a named template. `makeDefault` (Directors) makes new proposals start from it. */
+export async function saveTemplate(input: { name: string; doc: unknown; makeDefault: boolean }): Promise<Result> {
+  const actor = await requirePermission("proposals.manage");
+  return wrap(async () => {
+    const name = templateName.parse(input.name);
+    const doc = docSchema.parse(input.doc);
+    if (input.makeDefault) await requirePermission("settings.manage");
+    await db.$transaction(async (tx) => {
+      if (input.makeDefault) await tx.proposalTemplate.updateMany({ data: { isDefault: false } });
+      await tx.proposalTemplate.create({ data: { name, doc: sanitizeDoc(doc) as Prisma.InputJsonValue, isDefault: input.makeDefault, createdById: actor.id } });
+    });
+    revalidatePath("/proposals", "layout");
+  });
+}
+
+export async function setDefaultTemplate(id: string | null): Promise<Result> {
   await requirePermission("settings.manage");
   return wrap(async () => {
-    const [p, firm] = await Promise.all([db.proposal.findUniqueOrThrow({ where: { id } }), getFirmSettings()]);
-    const doc = proposalDoc(p, firm);
-    // Documents attached to one client's proposal don't belong in the template.
-    const template = { ...doc, sections: doc.sections.map((s) => ({ ...s, files: [] })) };
-    await db.firmSettings.update({ where: { id: "firm" }, data: { proposalTemplate: template as Prisma.InputJsonValue } });
+    await db.$transaction([
+      db.proposalTemplate.updateMany({ data: { isDefault: false } }),
+      ...(id ? [db.proposalTemplate.update({ where: { id }, data: { isDefault: true } })] : []),
+    ]);
+    revalidatePath("/proposals", "layout");
+    revalidatePath("/settings/billing");
+  });
+}
+
+export async function deleteTemplate(id: string): Promise<Result> {
+  await requirePermission("settings.manage");
+  return wrap(async () => {
+    await db.proposalTemplate.delete({ where: { id } });
+    revalidatePath("/proposals", "layout");
+  });
+}
+
+export async function saveLibraryBlock(input: { name: string; block: unknown }): Promise<Result> {
+  const actor = await requirePermission("proposals.manage");
+  return wrap(async () => {
+    const name = z.string().trim().min(2, "Name the block").max(120).parse(input.name);
+    const block = sanitizeBlock(blockSchema.parse(input.block));
+    await db.libraryBlock.create({ data: { name, block: block as Prisma.InputJsonValue, createdById: actor.id } });
+    revalidatePath("/proposals", "layout");
+  });
+}
+
+export async function deleteLibraryBlock(id: string): Promise<Result> {
+  await requirePermission("proposals.manage");
+  return wrap(async () => {
+    await db.libraryBlock.delete({ where: { id } });
+    revalidatePath("/proposals", "layout");
   });
 }
 

@@ -1,5 +1,5 @@
 import sanitizeHtml from "sanitize-html";
-import type { ProposalDoc } from "@/lib/proposal-doc";
+import type { Block, ProposalDoc } from "@/lib/proposal-doc";
 
 // Proposal pages are shown to clients, so everything typed in the editor is
 // cleaned on save: only formatting markup survives, never scripts, event
@@ -47,14 +47,11 @@ export function cleanHtml(html: string) {
   return sanitizeHtml(html, OPTIONS);
 }
 
+export function sanitizeBlock(b: Block): Block {
+  return b.type === "text" ? { ...b, html: cleanHtml(b.html) } : b;
+}
+
+/** Text blocks are cleaned; every other block is plain data rendered by React (escaped). */
 export function sanitizeDoc(doc: ProposalDoc): ProposalDoc {
-  return {
-    ...doc,
-    sections: doc.sections.map((s) => ({
-      ...s,
-      html: cleanHtml(s.html),
-      title: s.title.trim() || "Untitled",
-      perks: s.perks.map((p) => ({ ...p, title: p.title.trim(), text: p.text.trim() })),
-    })),
-  };
+  return { ...doc, pages: doc.pages.map((p) => ({ ...p, blocks: p.blocks.map(sanitizeBlock) })) };
 }

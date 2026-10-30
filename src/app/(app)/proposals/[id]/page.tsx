@@ -4,11 +4,12 @@ import { CheckCircle2, FileText } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { formatDate, formatDateTime, toISODate } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { getFirmSettings, proposalNumber } from "@/lib/firm";
+import { DEFAULT_TERMS, getFirmSettings, proposalNumber } from "@/lib/firm";
 import { formatRand } from "@/lib/money";
 import { paystackMode } from "@/lib/paystack";
 import { can } from "@/lib/permissions";
 import { docContext, proposalDoc } from "@/lib/proposal-content";
+import { blockSchema, defaultDoc, normalizeDoc, type PackageSnapshot, type Responses } from "@/lib/proposal-doc";
 import { STATUS_LABELS, displayStatus, proposalInclude, publicUrl } from "@/lib/proposals";
 import { requirePermission } from "@/lib/session";
 import { ProposalBuilder } from "./builder";
@@ -26,11 +27,21 @@ export default async function ProposalEditorPage({ params }: { params: Promise<{
     include: { ...proposalInclude, payments: { orderBy: { createdAt: "desc" } }, subscriptions: true, client: { select: { id: true, name: true } }, signedFile: { select: { id: true, name: true } } },
   });
   if (!p) notFound();
-  const [services, packages, firm] = await Promise.all([
+  const [services, packages, firm, templates, library] = await Promise.all([
     db.service.findMany({ where: { active: true }, select: { id: true, name: true, priceCents: true, billingType: true }, orderBy: { position: "asc" } }),
-    db.servicePackage.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.servicePackage.findMany({ where: { active: true }, include: { items: { include: { service: true } } }, orderBy: { name: "asc" } }),
     getFirmSettings(),
+    db.proposalTemplate.findMany({ orderBy: [{ isDefault: "desc" }, { name: "asc" }] }),
+    db.libraryBlock.findMany({ orderBy: { name: "asc" } }),
   ]);
+  // Packages offered on the proposal carry a copy of their prices, taken when ticked.
+  const firmPackages: PackageSnapshot[] = packages.map((pk) => ({
+    id: pk.id,
+    name: pk.name,
+    description: pk.description,
+    items: pk.items.map((i) => ({ name: i.service.name, description: i.service.description, billingType: i.service.billingType, quantity: i.quantity, unitPriceCents: i.priceCents ?? i.service.priceCents, taxable: i.service.taxable })),
+  }));
+  const builtIn = defaultDoc(firm.proposalTerms || DEFAULT_TERMS);
   const display = displayStatus(p);
   const locked = !["DRAFT", "SENT", "VIEWED"].includes(p.status);
   const doc = proposalDoc(p, firm);
@@ -98,11 +109,19 @@ export default async function ProposalEditorPage({ params }: { params: Promise<{
       expired={display === "EXPIRED"}
       backHref={`/deals/${p.deal.id}`}
       initial={{ title: p.title, validUntil: toISODate(p.validUntil), startDate: p.startDate ? toISODate(p.startDate) : null, doc }}
+      builtInDoc={builtIn}
       ctx={await docContext(p, firm)}
-      hasEmail={!!p.deal.email}
+      contactEmail={p.deal.email}
+      responses={(p.clientResponses as Responses | null) ?? null}
       services={services}
-      packages={packages}
-      canTemplate={can(user.role, "settings.manage")}
+      packages={packages.map((pk) => ({ id: pk.id, name: pk.name }))}
+      firmPackages={firmPackages}
+      templates={templates.map((t) => ({ id: t.id, name: t.name, isDefault: t.isDefault, doc: normalizeDoc(t.doc, () => builtIn) }))}
+      library={library.flatMap((l) => {
+        const b = blockSchema.safeParse(l.block);
+        return b.success ? [{ id: l.id, name: l.name, block: b.data }] : [];
+      })}
+      canManageTemplates={can(user.role, "settings.manage")}
       updatedAt={p.updatedAt.toISOString()}
       paymentMode={MODE[paystackMode()] ?? paystackMode()}
       statusPanel={statusPanel}

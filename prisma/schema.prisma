@@ -565,6 +565,8 @@ model Proposal {
   terms           String?
   // Document builder content (sections, theme, email): see src/lib/proposal-doc.ts.
   content         Json?
+  // What the client filled in when accepting (signature, fields, chosen package).
+  clientResponses Json?
   validUntil      DateTime         @db.Date
   // When retainers start; the first month is part of the first payment.
   startDate       DateTime?        @db.Date
@@ -982,4 +984,24 @@ model Leave {
   createdAt   DateTime  @default(now())
 
   @@index([userId, startDate])
+}
+
+// Saved proposal layouts. The default one is what new proposals start from.
+model ProposalTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  doc         Json
+  isDefault   Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Reusable blocks (e.g. a standard terms paragraph or team bio) for the proposal builder.
+model LibraryBlock {
+  id          String   @id @default(cuid())
+  name        String
+  block       Json
+  createdById String?
+  createdAt   DateTime @default(now())
 }

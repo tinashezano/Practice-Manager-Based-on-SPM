@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { CheckCircle2, Lock } from "lucide-react";
-import { ProposalPages } from "@/components/proposal/document";
+import { DocumentView } from "@/components/proposal/document";
 import { auth } from "@/auth";
 import { formatDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
@@ -9,8 +9,10 @@ import { formatRand } from "@/lib/money";
 import { paystackMode } from "@/lib/paystack";
 import { docContext, proposalDoc } from "@/lib/proposal-content";
 import { displayStatus, markViewed, proposalInclude, totalsOf } from "@/lib/proposals";
-import { accept, pay } from "../actions";
-import { AcceptForm, PayForm } from "../forms";
+import type { Responses } from "@/lib/proposal-doc";
+import { pay } from "../actions";
+import { PayForm } from "../forms";
+import { FillableProposal } from "./fill";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -31,20 +33,14 @@ export default async function PublicProposalPage({ params, searchParams }: { par
   const mode = paystackMode();
 
   const doc = proposalDoc(p, firm);
-  const signed = status === "SIGNED" || status === "ACCEPTED";
+  const ctx = await docContext(p, firm);
+  const open = status === "SENT" || status === "VIEWED";
 
-  // Accepting, paying and the outcome sit at the end of the terms page.
+  // After signing: payment and the outcome sit at the end of the document.
   const panel = (
-    <div className="mt-8 rounded-2xl border border-[#e4e2dc] bg-white p-6 print:hidden">
+    <div className="mt-8 rounded-xl border border-[#e5e7eb] bg-white p-6 print:hidden">
       {status === "EXPIRED" && <p className="text-sm">This proposal expired. Please contact us and we&apos;ll send you an updated one.</p>}
       {status === "DECLINED" && <p className="text-sm">This proposal was declined.</p>}
-
-      {(status === "SENT" || status === "VIEWED") && (
-        <>
-          <h2 className="mb-3 text-base font-semibold">Accept this proposal</h2>
-          <AcceptForm action={accept.bind(null, token)} contactName={p.deal.contactName} />
-        </>
-      )}
 
       {status === "SIGNED" && !p.paidAt && (
         <>
@@ -78,9 +74,13 @@ export default async function PublicProposalPage({ params, searchParams }: { par
   );
 
   return (
-    <div className="min-h-screen px-4 py-8 print:bg-white print:p-0" style={{ background: doc.theme.background }}>
-      <div className="mx-auto mb-4 flex max-w-[760px] justify-end print:hidden"><PrintButton /></div>
-      <ProposalPages doc={doc} ctx={await docContext(p, firm)} after={{ terms: panel }} hideThankYou={!signed} />
+    <div className="min-h-screen bg-[#eef0f7] px-4 py-8 print:bg-white print:p-0">
+      <div className="mx-auto mb-4 flex max-w-[794px] justify-end print:hidden"><PrintButton /></div>
+      {open ? (
+        <FillableProposal token={token} doc={doc} ctx={ctx} />
+      ) : (
+        <DocumentView doc={doc} ctx={ctx} responses={p.clientResponses as Responses | null} after={panel} />
+      )}
     </div>
   );
 }

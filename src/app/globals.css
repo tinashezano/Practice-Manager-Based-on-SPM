@@ -59,7 +59,7 @@ body {
 .doc-content td > p, .doc-content th > p { margin: 0; }
 
 /* Word-style editor */
-.doc-editor .ProseMirror { outline: none; min-height: 220px; }
+.doc-editor .ProseMirror { outline: none; min-height: 1.7em; }
 .doc-editor .ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #a3a6bb; float: left; height: 0; pointer-events: none; }
 .doc-editor .ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: rgba(55, 93, 251, 0.12); pointer-events: none; }
 .doc-editor .ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--p-accent, #375dfb); pointer-events: none; }
@@ -67,7 +67,11 @@ body {
 .doc-editor .ProseMirror img.ProseMirror-selectednode { outline: 2px solid var(--p-accent, #375dfb); }
 .doc-editor .tableWrapper { overflow-x: auto; }
 
+@page { size: A4 portrait; margin: 0; }
+@page landscape { size: A4 landscape; margin: 0; }
 @media print {
-  .proposal-doc { background: none !important; }
-  .proposal-page { box-shadow: none !important; break-after: page; max-width: none !important; border-radius: 0 !important; }
+  .proposal-doc { gap: 0; }
+  .proposal-doc > * + * { margin-top: 0 !important; }
+  .proposal-sheet { box-shadow: none !important; break-after: page; width: 100% !important; min-height: 100vh !important; }
+  .proposal-sheet.sheet-landscape { page: landscape; }
 }

@@ -34,9 +34,12 @@ export async function saveFirmSettings(_: FormState, fd: FormData): Promise<Form
   return { ok: "Saved. New proposals use these settings." };
 }
 
-/** Forget the saved proposal template: new proposals go back to the built-in layout and the terms above. */
+/** New proposals go back to the built-in layout and the terms above (saved templates are kept). */
 export async function resetProposalTemplate() {
   await requirePermission("settings.manage");
-  await db.firmSettings.update({ where: { id: "firm" }, data: { proposalTemplate: Prisma.DbNull } });
+  await db.$transaction([
+    db.proposalTemplate.updateMany({ data: { isDefault: false } }),
+    db.firmSettings.update({ where: { id: "firm" }, data: { proposalTemplate: Prisma.DbNull } }),
+  ]);
   revalidatePath("/settings/billing");
 }

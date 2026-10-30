@@ -12,9 +12,8 @@ import { enqueue } from "@/lib/jobs";
 import { computeTotals, dueNow, formatRand, monthlyTotal } from "@/lib/money";
 import { notify } from "@/lib/notify";
 import { initializeTransaction, paystackMode, verifyTransaction } from "@/lib/paystack";
-import { docContext, proposalDoc, templateDoc } from "@/lib/proposal-content";
-import { mergeFields } from "@/lib/proposal-doc";
-import { mergeValues } from "@/components/proposal/document";
+import { docContext, proposalDoc, startingDoc } from "@/lib/proposal-content";
+import { allBlocks, linesWithPackage, mergeFields, mergeValues, validateResponses, type Responses } from "@/lib/proposal-doc";
 
 export const proposalInclude = {
   lineItems: { orderBy: { position: "asc" } },
@@ -60,7 +59,7 @@ export async function createProposal(dealId: string, actorId: string, packageId?
     data: {
       title: pkg ? `${pkg.name} for ${deal.name}` : `Proposal for ${deal.name}`,
       dealId,
-      content: templateDoc(firm) as Prisma.InputJsonValue,
+      content: (await startingDoc(firm)) as Prisma.InputJsonValue,
       validUntil: parseISODate(addDays(todayISO(), firm.proposalValidityDays))!,
       // Services start on acceptance unless a date is chosen.
       startDate: null,
@@ -96,6 +95,7 @@ export function proposalHash(p: ProposalWithLines) {
     introduction: p.introduction,
     terms: p.terms,
     content: p.content ?? null,
+    responses: p.clientResponses ?? null,
     validUntil: p.validUntil.toISOString(),
     startDate: p.startDate?.toISOString() ?? null,
     vat: p.vatRatePercent,
@@ -113,14 +113,15 @@ type Ok<T = object> = { ok: true } & T;
 export async function sendProposal(id: string, actor: { id: string; name: string }): Promise<Ok | Fail> {
   const p = await db.proposal.findUniqueOrThrow({ where: { id }, include: proposalInclude });
   if (!p.deal.email) return { ok: false, error: "The lead has no email address. Add one on the deal first." };
-  if (!p.lineItems.length) return { ok: false, error: "Add at least one service before sending." };
+  const firm = await getFirmSettings();
+  const doc = proposalDoc(p, firm);
+  const hasPackages = allBlocks(doc).some((b) => b.type === "packages" && b.packages.length > 0);
+  if (!p.lineItems.length && !hasPackages) return { ok: false, error: "Add at least one service or package before sending." };
   if (!["DRAFT", "SENT", "VIEWED"].includes(p.status)) return { ok: false, error: "This proposal can no longer be sent." };
   if (displayStatus(p) === "EXPIRED") return { ok: false, error: "The valid-until date has passed. Extend it before sending." };
 
   await db.proposal.update({ where: { id }, data: { status: p.status === "DRAFT" ? "SENT" : p.status, sentAt: new Date() } });
-  const firm = await getFirmSettings();
-  const doc = proposalDoc(p, firm);
-  const values = { ...mergeValues(await docContext(p, firm), doc), senderName: actor.name };
+  const values = { ...mergeValues(await docContext(p, firm)), senderName: actor.name };
   const mail = customProposalEmail({
     subject: mergeFields(doc.email.subject, values, false),
     body: mergeFields(doc.email.body, values, false),
@@ -153,18 +154,49 @@ function canAccept(p: ProposalWithLines): Fail | null {
   return null;
 }
 
-/** Client accepts on the proposal page by typing their name. */
-export async function acceptByClick(token: string, signer: { name: string; ip: string; userAgent: string }): Promise<Ok | Fail> {
+type Signer = { responses: Responses; typedName: string; ip: string; userAgent: string };
+
+/**
+ * Client accepts on the proposal page: their signature and form answers are
+ * checked against the document, a chosen package becomes line items, and the
+ * fingerprint covers the final prices and everything they filled in.
+ */
+export async function acceptProposal(token: string, signer: Signer): Promise<Ok | Fail> {
   const p = await db.proposal.findUnique({ where: { publicToken: token }, include: proposalInclude });
   if (!p) return { ok: false, error: "Proposal not found." };
   const blocked = canAccept(p);
   if (blocked) return blocked;
-  await db.proposal.update({
-    where: { id: p.id },
-    data: { status: "SIGNED", signedAt: new Date(), signatureMethod: "CLICK_TO_ACCEPT", signedName: signer.name, signedIp: signer.ip, signedUserAgent: signer.userAgent.slice(0, 500), signedHash: proposalHash(p) },
+  const firm = await getFirmSettings();
+  const doc = proposalDoc(p, firm);
+  const checked = validateResponses(doc, signer.responses, todayISO());
+  if (!checked.ok) return checked;
+  const name = checked.signerName ?? signer.typedName.trim();
+  if (name.length < 3) return { ok: false, error: "Type your full name to sign." };
+
+  const lines = linesWithPackage([], doc, checked.packageId);
+  const done = await db.$transaction(async (tx) => {
+    // Claim the proposal first so a double click can't add the package twice.
+    const { count } = await tx.proposal.updateMany({ where: { id: p.id, status: { in: ["SENT", "VIEWED"] } }, data: { status: "SIGNED" } });
+    if (!count) return false;
+    if (lines.length) {
+      await tx.proposalLineItem.createMany({
+        data: lines.map((l, i) => ({ proposalId: p.id, name: l.name, description: l.description, billingType: l.billingType, quantity: l.quantity, unitPriceCents: l.unitPriceCents, taxable: l.taxable, position: p.lineItems.length + i })),
+      });
+      const all = await tx.proposalLineItem.findMany({ where: { proposalId: p.id } });
+      await tx.proposal.update({ where: { id: p.id }, data: computeTotals(all, p.vatRatePercent) });
+    }
+    const signed = await tx.proposal.update({ where: { id: p.id }, data: { clientResponses: checked.values as Prisma.InputJsonValue }, include: proposalInclude });
+    await tx.proposal.update({
+      where: { id: p.id },
+      data: { signedAt: new Date(), signatureMethod: "CLICK_TO_ACCEPT", signedName: name, signedIp: signer.ip, signedUserAgent: signer.userAgent.slice(0, 500), signedHash: proposalHash(signed) },
+    });
+    return true;
   });
-  await logActivity(p.dealId, "SYSTEM", `${signer.name} accepted proposal ${proposalNumber(p.number)} online.`);
-  await notify([p.deal.ownerId], "system", { title: `${p.deal.name} accepted their proposal`, body: totalsOf(p).dueNow ? "Waiting for payment" : undefined, link: `/proposals/${p.id}` });
+  if (!done) return { ok: false, error: "This proposal has already been accepted." };
+
+  const after = await db.proposal.findUniqueOrThrow({ where: { id: p.id } });
+  await logActivity(p.dealId, "SYSTEM", `${name} accepted proposal ${proposalNumber(p.number)} online.`);
+  await notify([p.deal.ownerId], "system", { title: `${p.deal.name} accepted their proposal`, body: totalsOf(after).dueNow ? "Waiting for payment" : undefined, link: `/proposals/${p.id}` });
   await emitEvent("proposal.signed", { proposalId: p.id });
   return { ok: true };
 }
