@@ -2,6 +2,7 @@ import { FileSignature, Landmark } from "lucide-react";
 import { PaystackStatus } from "@/components/paystack-status";
 import { Avatar } from "@/components/avatar";
 import { GoogleConnectCard } from "@/components/google-connect";
+import { GoogleSetupGuide } from "@/components/google-setup-guide";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
@@ -24,6 +25,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
     <>
       <PageHeader title="Integrations" subtitle="Connections to Google Workspace and, in later phases, DocuSign, Paystack and QuickBooks." />
       <div className="mb-6"><GoogleConnectCard userId={user.id} back="/settings/integrations" status={google} /></div>
+      <GoogleSetupGuide />
 
       <Card className="mb-6 p-0">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">

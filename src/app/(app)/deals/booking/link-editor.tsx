@@ -29,7 +29,7 @@ export function EditLink({ link, staff, currentUserId }: { link: BookingLink; st
   );
 }
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text, label = "Copy link" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -40,7 +40,7 @@ export function CopyButton({ text }: { text: string }) {
       }}
       className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-background"
     >
-      <Copy size={12} /> {copied ? "Copied" : "Copy link"}
+      <Copy size={12} /> {copied ? "Copied" : label}
     </button>
   );
 }
