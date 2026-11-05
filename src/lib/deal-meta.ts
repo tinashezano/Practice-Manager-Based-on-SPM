@@ -31,3 +31,5 @@ export function formatZAR(cents: number) {
   const digits = Math.abs(rands).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
   return `${rands < 0 ? "-" : ""}R\u00a0${digits}`;
 }
+
+export const DEAL_DELETE_MESSAGE = "Delete this deal with its notes, tasks, booking history and unsigned proposals? This can't be undone. (Deals with a signed or paid proposal can't be deleted.)";

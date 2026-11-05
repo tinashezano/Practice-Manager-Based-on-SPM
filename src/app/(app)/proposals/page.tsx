@@ -1,5 +1,7 @@
 import clsx from "clsx";
 import Link from "next/link";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteProposalAction } from "../delete-actions";
 import { Search } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { Badge, Button, Card, PageHeader, inputBase } from "@/components/ui";
@@ -61,7 +63,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
               <th className="px-3 py-3 text-right font-medium">Due on acceptance</th>
               <th className="px-3 py-3 text-right font-medium">Monthly</th>
               <th className="px-3 py-3 font-medium">Created</th>
-              <th className="px-5 py-3 font-medium">Valid until</th>
+              <th className="px-3 py-3 font-medium">Valid until</th>
+              <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -77,11 +80,16 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
                   <td className="px-3 py-3 text-right">{formatRand(t.dueNow)}</td>
                   <td className="px-3 py-3 text-right text-muted">{t.monthly ? formatRand(t.monthly) : "—"}</td>
                   <td className="px-3 py-3 text-muted">{formatDate(p.createdAt.toISOString().slice(0, 10), { day: "numeric", month: "short", year: "numeric" })}</td>
-                  <td className="px-5 py-3 text-muted">{formatDate(p.validUntil, { day: "numeric", month: "short", year: "numeric" })}</td>
+                  <td className="px-3 py-3 text-muted">{formatDate(p.validUntil, { day: "numeric", month: "short", year: "numeric" })}</td>
+                  <td className="px-3 py-3 text-right">
+                    {!["SIGNED", "ACCEPTED"].includes(p.status) && !p.paidAt && (
+                      <DeleteButton variant="icon" label={`Delete ${proposalNumber(p.number)}`} action={deleteProposalAction.bind(null, p.id)} confirm={`Delete proposal ${proposalNumber(p.number)} for ${p.deal.name}? If it was sent, the client's link stops working.`} />
+                    )}
+                  </td>
                 </tr>
               );
             })}
-            {!shown.length && <tr><td colSpan={6} className="py-12 text-center text-muted">No proposals here.</td></tr>}
+            {!shown.length && <tr><td colSpan={7} className="py-12 text-center text-muted">No proposals here.</td></tr>}
           </tbody>
         </table>
       </Card>

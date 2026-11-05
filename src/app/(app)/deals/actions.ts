@@ -100,10 +100,3 @@ export async function convertToClient(dealId: string): Promise<Result> {
   revalidatePath("/", "layout");
   redirect(`/clients/${clientId}`);
 }
-
-export async function deleteDeal(dealId: string): Promise<Result> {
-  await requirePermission("settings.manage");
-  await db.deal.delete({ where: { id: dealId } });
-  revalidatePath("/", "layout");
-  redirect("/deals");
-}

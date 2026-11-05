@@ -7,6 +7,8 @@ import type { OnboardingStage } from "@prisma/client";
 import { Mail } from "lucide-react";
 import { useOptimistic } from "react";
 import { moveStage } from "@/app/(app)/clients/[id]/onboarding/actions";
+import { deleteOnboardingAction } from "@/app/(app)/delete-actions";
+import { DeleteButton } from "@/components/delete-button";
 import { Avatar } from "@/components/avatar";
 import { useAction } from "@/components/tasks/use-action";
 import { STAGES, STAGE_INFO } from "@/lib/onboarding-meta";
@@ -25,12 +27,21 @@ export type BoardItem = {
   remindersSent: number;
 };
 
-function Card({ item }: { item: BoardItem }) {
+const ONBOARDING_DELETE = "Delete this onboarding? Its checklist, activity and the documents the client uploaded are removed. The client stays.";
+
+function Card({ item, canDelete }: { item: BoardItem; canDelete: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id });
   const stuck = item.stage !== "COMPLETE" && item.daysInStage > 7;
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined} className={clsx("cursor-grab rounded-lg border border-border bg-surface p-3 shadow-sm", isDragging && "z-10 opacity-80 shadow-lg")}>
-      <Link href={`/clients/${item.clientId}/onboarding`} className="block text-sm font-medium hover:text-brand">{item.clientName}</Link>
+    <div ref={setNodeRef} {...listeners} {...attributes} style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined} className={clsx("group cursor-grab rounded-lg border border-border bg-surface p-3 shadow-sm", isDragging && "z-10 opacity-80 shadow-lg")}>
+      <div className="flex items-start justify-between gap-1">
+        <Link href={`/clients/${item.clientId}/onboarding`} className="block min-w-0 text-sm font-medium hover:text-brand">{item.clientName}</Link>
+        {canDelete && (
+          <span className="-mr-1.5 -mt-1 opacity-0 transition group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
+            <DeleteButton variant="icon" label={`Delete onboarding for ${item.clientName}`} action={deleteOnboardingAction.bind(null, item.id)} confirm={ONBOARDING_DELETE} />
+          </span>
+        )}
+      </div>
       <div className="mt-2 space-y-1.5 text-[11px] text-muted">
         <Bar label="Client info" value={item.infoReceived} total={item.infoTotal} />
         <Bar label="Setup" value={item.setupDone} total={item.setupTotal} />
@@ -52,7 +63,7 @@ function Bar({ label, value, total }: { label: string; value: number; total: num
   );
 }
 
-function Column({ stage, items }: { stage: OnboardingStage; items: BoardItem[] }) {
+function Column({ stage, items, canDelete }: { stage: OnboardingStage; items: BoardItem[]; canDelete: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
     <div ref={setNodeRef} className={clsx("flex w-52 shrink-0 flex-col rounded-xl border border-border bg-background/70", isOver && "ring-2 ring-brand")}>
@@ -60,7 +71,7 @@ function Column({ stage, items }: { stage: OnboardingStage; items: BoardItem[] }
         <span className={clsx("h-2 w-2 rounded-full", STAGE_INFO[stage].dot)} /> {STAGE_INFO[stage].label}
         <span className="font-normal text-muted">{items.length}</span>
       </div>
-      <div className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">{items.map((i) => <Card key={i.id} item={i} />)}</div>
+      <div className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">{items.map((i) => <Card key={i.id} item={i} canDelete={canDelete} />)}</div>
     </div>
   );
 }
@@ -84,7 +95,7 @@ export function OnboardingBoard({ items, canMove }: { items: BoardItem[]; canMov
   return (
     <DndContext id="onboarding-board" sensors={sensors} onDragEnd={onDragEnd}>
       {toast}
-      <div className="flex gap-3 overflow-x-auto pb-4">{STAGES.map((s) => <Column key={s} stage={s} items={optimistic.filter((i) => i.stage === s)} />)}</div>
+      <div className="flex gap-3 overflow-x-auto pb-4">{STAGES.map((s) => <Column key={s} stage={s} items={optimistic.filter((i) => i.stage === s)} canDelete={canMove} />)}</div>
     </DndContext>
   );
 }

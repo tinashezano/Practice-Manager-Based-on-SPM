@@ -4,7 +4,8 @@ import clsx from "clsx";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, FolderKanban } from "lucide-react";
 import { useState } from "react";
-import { updateTask } from "@/app/(app)/tasks/actions";
+import { deleteTask, updateTask } from "@/app/(app)/tasks/actions";
+import { DeleteButton } from "@/components/delete-button";
 import { Avatar } from "@/components/avatar";
 import type { TaskRow } from "@/lib/task-queries";
 import { taskHome } from "@/lib/task-meta";
@@ -64,7 +65,7 @@ function Row({ task, depth, expanded, onExpand }: { task: TaskRow | TaskRow["sub
   return (
     <div
       className={clsx(
-        "group grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border px-3 py-2 last:border-0 sm:grid-cols-[1fr_130px_90px_100px_32px]",
+        "group grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border px-3 py-2 last:border-0 sm:grid-cols-[1fr_130px_90px_100px_32px_28px]",
         selected ? "bg-brand-soft" : "hover:bg-background",
       )}
     >
@@ -89,6 +90,14 @@ function Row({ task, depth, expanded, onExpand }: { task: TaskRow | TaskRow["sub
       <div className="hidden sm:block"><DueDate date={task.dueDate} done={done} /></div>
       <div className="hidden truncate text-xs text-muted sm:block">{task.assignee?.name.split(" ")[0] ?? "Unassigned"}</div>
       <Avatar user={task.assignee} />
+      <span className="opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+        <DeleteButton
+          variant="icon"
+          label={`Delete ${task.title}`}
+          action={() => deleteTask(task.id)}
+          confirm={subtasks.length ? `Delete "${task.title}" and its ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}?` : `Delete "${task.title}"?`}
+        />
+      </span>
     </div>
   );
 }

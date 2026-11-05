@@ -8,6 +8,8 @@ import { formatDate, formatDateTime, toISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteEnrollmentAction } from "../../../delete-actions";
 import { CancelEnrollment } from "../controls";
 
 export const metadata = { title: "Onboarding progress" };
@@ -69,7 +71,17 @@ export default async function EnrollmentPage({ params }: { params: Promise<{ id:
           );
         })}
       </Card>
-      {can(user.role, "team.manage") && e.status === "ACTIVE" && <div className="mt-4"><CancelEnrollment id={e.id} /></div>}
+      {can(user.role, "team.manage") && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {e.status === "ACTIVE" && <CancelEnrollment id={e.id} />}
+          <DeleteButton
+            label="Delete enrolment"
+            action={deleteEnrollmentAction.bind(null, e.id)}
+            redirectTo="/resources/staff-onboarding"
+            confirm="Delete this enrolment? Unfinished onboarding tasks are deleted; finished ones stay as history."
+          />
+        </div>
+      )}
     </div>
   );
 }

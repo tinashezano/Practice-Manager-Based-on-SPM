@@ -12,6 +12,7 @@ import { parseRand } from "@/lib/money";
 import { createProposal, recalcProposal, recordManualPayment, recordUploadedSignature, sendProposal } from "@/lib/proposals";
 import { blockSchema, docSchema } from "@/lib/proposal-doc";
 import { sanitizeBlock, sanitizeDoc } from "@/lib/sanitize";
+import { deleteProposal } from "@/lib/deletion";
 import { requirePermission } from "@/lib/session";
 import { saveFile } from "@/lib/storage";
 
@@ -315,8 +316,8 @@ export async function markDeclined(id: string, reason: string): Promise<Result> 
 export async function deleteDraft(id: string): Promise<Result> {
   await requirePermission("proposals.manage");
   const p = await db.proposal.findUniqueOrThrow({ where: { id } });
-  if (p.status !== "DRAFT") return { ok: false, error: "Only drafts can be deleted. Withdraw sent proposals instead." };
-  await db.proposal.delete({ where: { id } });
+  const r = await deleteProposal(id);
+  if (!r.ok) return r;
   revalidatePath("/", "layout");
   redirect(`/deals/${p.dealId}`);
 }

@@ -309,7 +309,9 @@ export function ProposalBuilder(props: BuilderProps) {
                 <MenuItem onClick={() => { setModal("details"); setMenu(false); }}>Proposal details & dates</MenuItem>
                 <MenuItem onClick={() => { setModal("status"); setMenu(false); }}>Status, payments & signature</MenuItem>
                 <a href={`/proposal-preview/${id}?print=1`} target="_blank" className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-background"><FileDown size={14} /> Download PDF</a>
-                {props.status === "DRAFT" && <MenuItem danger onClick={() => confirm("Delete this draft proposal?") && run(() => deleteDraft(id))}>Delete draft</MenuItem>}
+                {!["SIGNED", "ACCEPTED"].includes(props.status) && (
+                  <MenuItem danger onClick={() => confirm(props.status === "DRAFT" ? "Delete this draft proposal?" : "Delete this proposal? The client's link will stop working.") && run(() => deleteDraft(id))}>Delete proposal</MenuItem>
+                )}
               </div>
             )}
           </div>

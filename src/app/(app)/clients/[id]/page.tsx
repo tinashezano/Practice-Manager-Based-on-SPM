@@ -11,6 +11,8 @@ import { formatDate } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteClientAction, deleteProjectAction } from "../../delete-actions";
 import { CLIENT_STATUS_META, ENTITY_LABELS, PROJECT_STATUS_META } from "@/lib/task-meta";
 import { removeContact, setProjectStatus } from "../actions";
 import { AddContactForm, NewProjectForm } from "./client-side-forms";
@@ -59,7 +61,18 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
             {client.owner && <span className="inline-flex items-center gap-1.5">· <Avatar user={client.owner} size="xs" /> {client.owner.name}</span>}
           </div>
         </div>
-        {manage && <Link href={`/clients/${id}/edit`}><Button variant="secondary"><Pencil size={14} /> Edit client</Button></Link>}
+        <div className="flex flex-wrap items-center gap-2">
+          {manage && <Link href={`/clients/${id}/edit`}><Button variant="secondary"><Pencil size={14} /> Edit client</Button></Link>}
+          {can(user.role, "settings.manage") && !client.isInternal && (
+            <DeleteButton
+              label="Delete client"
+              action={deleteClientAction.bind(null, id)}
+              typeToConfirm={client.name}
+              redirectTo="/clients"
+              confirm="This permanently deletes the client with all their projects, tasks, onboarding, uploaded documents and contacts. Signed proposals and payments are kept. Time already logged stays but loses the client. To keep their history, set the client's status to Inactive instead."
+            />
+          )}
+        </div>
       </div>
 
       {onboarding ? (
@@ -146,13 +159,18 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
                     </div>
                   </Link>
                   {manage && (
-                    <form action={setProjectStatus} className="mt-2 flex gap-1">
+                    <form action={setProjectStatus} className="mt-2 flex items-center gap-1">
                       <input type="hidden" name="projectId" value={p.id} />
                       {(["ACTIVE", "ON_HOLD", "COMPLETED"] as const).filter((s) => s !== p.status).map((s) => (
                         <button key={s} name="status" value={s} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted hover:border-brand hover:text-brand">
                           {s === "ACTIVE" ? "Reopen" : s === "ON_HOLD" ? "Put on hold" : "Complete"}
                         </button>
                       ))}
+                      {can(user.role, "tasks.manageAll") && (
+                        <span className="ml-auto">
+                          <DeleteButton variant="icon" label={`Delete project ${p.name}`} action={deleteProjectAction.bind(null, p.id)} redirectTo={`/clients/${id}`} confirm={`Delete the project "${p.name}" and all its tasks? Time already logged is kept.`} />
+                        </span>
+                      )}
                     </form>
                   )}
                 </div>

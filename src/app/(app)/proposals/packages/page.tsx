@@ -4,6 +4,8 @@ import { getFirmSettings } from "@/lib/firm";
 import { computeTotals, dueNow, formatRand, monthlyTotal } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deletePackageAction } from "../../delete-actions";
 import { PackageButton } from "./package-editor";
 
 export const metadata = { title: "Service Packages" };
@@ -31,7 +33,12 @@ export default async function PackagesPage() {
                   <div className="font-semibold">{p.name} {!p.active && <Badge>Inactive</Badge>}</div>
                   {p.description && <p className="mt-0.5 text-xs text-muted">{p.description}</p>}
                 </div>
-                {manage && <PackageButton pkg={{ id: p.id, name: p.name, description: p.description, active: p.active, items: p.items.map((i) => ({ serviceId: i.serviceId, quantity: i.quantity, priceCents: i.priceCents })) }} services={services} />}
+                {manage && (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <PackageButton pkg={{ id: p.id, name: p.name, description: p.description, active: p.active, items: p.items.map((i) => ({ serviceId: i.serviceId, quantity: i.quantity, priceCents: i.priceCents })) }} services={services} />
+                    <DeleteButton variant="icon" label={`Delete ${p.name}`} action={deletePackageAction.bind(null, p.id)} confirm={`Delete the "${p.name}" package? Its services stay in your list, and proposals that already offer it keep their copy.`} />
+                  </span>
+                )}
               </div>
               <ul className="mt-3 space-y-1 text-sm">
                 {p.items.map((i) => (

@@ -7,7 +7,7 @@ import { QuickAdd } from "@/components/tasks/quick-add";
 import { TaskWorkspace, type TaskSearchParams } from "@/components/tasks/task-workspace";
 import { Badge, Button, Card } from "@/components/ui";
 import { formatWhen } from "@/lib/booking";
-import { SOURCE_LABELS, STAGE_META, formatZAR, probabilityOf } from "@/lib/deal-meta";
+import { DEAL_DELETE_MESSAGE, SOURCE_LABELS, STAGE_META, formatZAR, probabilityOf } from "@/lib/deal-meta";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
@@ -17,6 +17,8 @@ import { proposalNumber } from "@/lib/firm";
 import { formatRand } from "@/lib/money";
 import { STATUS_LABELS, displayStatus, totalsOf } from "@/lib/proposals";
 import { FileSignature, Plus } from "lucide-react";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteDealAction } from "../../delete-actions";
 import { ConvertButton, NoteForm, SendLinkForm, StageControl } from "./deal-controls";
 
 const ACTIVITY_DOT: Record<string, string> = {
@@ -68,6 +70,7 @@ export default async function DealPage({ params, searchParams }: { params: Promi
           <StageControl dealId={deal.id} stage={deal.stage} />
           <Link href={`/deals/${deal.id}/edit`}><Button variant="secondary"><Pencil size={14} /> Edit</Button></Link>
           {!deal.client && deal.stage !== "LOST" && can(user.role, "clients.manage") && <ConvertButton dealId={deal.id} name={deal.name} />}
+          <DeleteButton action={deleteDealAction.bind(null, deal.id)} confirm={DEAL_DELETE_MESSAGE} redirectTo="/deals" label="Delete deal" />
         </div>
       </div>
 

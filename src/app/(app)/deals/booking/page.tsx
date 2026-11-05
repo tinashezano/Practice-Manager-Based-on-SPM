@@ -6,6 +6,8 @@ import { appUrl } from "@/lib/app-url";
 import { bookingUrl, formatWhen } from "@/lib/booking";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteBookingLinkAction } from "../../delete-actions";
 import { CopyButton, EditLink, NewLinkButton } from "./link-editor";
 
 export const metadata = { title: "Booking Links" };
@@ -52,6 +54,12 @@ export default async function BookingLinksPage({ searchParams }: { searchParams:
             <div className="flex gap-2">
               <CopyButton text={bookingUrl(l.slug)} />
               <EditLink link={l} staff={staff} currentUserId={user.id} />
+              <DeleteButton
+                variant="icon"
+                label={`Delete ${l.title}`}
+                action={deleteBookingLinkAction.bind(null, l.id)}
+                confirm={`Delete the "${l.title}" booking page? The link will stop working and its past bookings are removed from this list. To pause it instead, edit it and switch it off.`}
+              />
             </div>
           </Card>
         ))}

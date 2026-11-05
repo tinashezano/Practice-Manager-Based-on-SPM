@@ -4,6 +4,8 @@ import { Button, Card, PageHeader, inputBase } from "@/components/ui";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteJobTemplateAction } from "../../delete-actions";
 import { createTemplate } from "./actions";
 
 export const metadata = { title: "Job templates" };
@@ -31,7 +33,17 @@ export default async function TemplatesPage() {
           const hours = t.tasks.reduce((n, x) => n + (x.estimateMinutes ?? 0), 0) / 60;
           const card = (
             <Card className="h-full p-4 transition-colors hover:border-brand">
-              <div className="font-semibold">{t.name}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-semibold">{t.name}</div>
+                {editor && (
+                  <DeleteButton
+                    variant="icon"
+                    label={`Delete ${t.name}`}
+                    action={deleteJobTemplateAction.bind(null, t.id)}
+                    confirm={`Delete the "${t.name}" template? Projects already started keep their tasks; services using it will start blank projects.`}
+                  />
+                )}
+              </div>
               {t.description && <p className="mt-0.5 text-sm text-muted">{t.description}</p>}
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                 <span>{top} tasks</span>

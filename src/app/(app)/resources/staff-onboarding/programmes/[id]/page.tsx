@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteProgrammeAction } from "../../../../delete-actions";
 import { ProgrammeEditor } from "../../controls";
 
 export const metadata = { title: "Programme" };
@@ -17,7 +19,15 @@ export default async function ProgrammePage({ params }: { params: Promise<{ id: 
   if (!p) notFound();
   return (
     <div className="max-w-4xl">
-      <Link href="/resources/staff-onboarding" className="text-xs text-muted hover:text-brand">← Staff Onboarding</Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link href="/resources/staff-onboarding" className="text-xs text-muted hover:text-brand">← Staff Onboarding</Link>
+        <DeleteButton
+          label="Delete programme"
+          action={deleteProgrammeAction.bind(null, p.id)}
+          redirectTo="/resources/staff-onboarding"
+          confirm={`Delete the "${p.name}" programme with its steps and finished enrolments? (Programmes someone is still working through can't be deleted.)`}
+        />
+      </div>
       <Card className="mt-2">
         <ProgrammeEditor
           id={p.id}

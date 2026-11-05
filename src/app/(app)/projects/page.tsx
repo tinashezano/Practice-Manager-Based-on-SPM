@@ -4,13 +4,17 @@ import { Avatar } from "@/components/avatar";
 import { Badge, Button, Card, PageHeader, inputBase } from "@/components/ui";
 import { formatDate, parseISODate, todayISO } from "@/lib/dates";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteProjectAction } from "../delete-actions";
 import { PROJECT_STATUS_META } from "@/lib/task-meta";
 
 export const metadata = { title: "Projects" };
 
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  await requirePermission("tasks.work");
+  const user = await requirePermission("tasks.work");
+  const canDelete = can(user.role, "tasks.manageAll");
   const { status } = await searchParams;
   const statusFilter = status && status in PROJECT_STATUS_META ? (status as ProjectStatus) : status === "all" ? undefined : "ACTIVE";
   const today = parseISODate(todayISO())!;
@@ -47,7 +51,8 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
               <th className="w-48 px-3 py-3 font-medium">Progress</th>
               <th className="px-3 py-3 font-medium">Overdue</th>
               <th className="px-3 py-3 font-medium">Due</th>
-              <th className="px-5 py-3 font-medium">Owner</th>
+              <th className="px-3 py-3 font-medium">Owner</th>
+              <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -69,11 +74,14 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
                   </td>
                   <td className="px-3 py-3">{overdueBy.get(p.id) ? <span className="font-medium text-danger">{overdueBy.get(p.id)}</span> : <span className="text-muted">0</span>}</td>
                   <td className="px-3 py-3 text-muted">{p.dueDate ? formatDate(p.dueDate) : "—"}</td>
-                  <td className="px-5 py-3"><Avatar user={p.owner} /></td>
+                  <td className="px-3 py-3"><Avatar user={p.owner} /></td>
+                  <td className="px-3 py-3 text-right">
+                    {canDelete && <DeleteButton variant="icon" label={`Delete project ${p.name}`} action={deleteProjectAction.bind(null, p.id)} confirm={`Delete the project "${p.name}" (${p.client.name}) and all its tasks? Time already logged is kept.`} />}
+                  </td>
                 </tr>
               );
             })}
-            {projects.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-muted">No projects.</td></tr>}
+            {projects.length === 0 && <tr><td colSpan={8} className="py-12 text-center text-muted">No projects.</td></tr>}
           </tbody>
         </table>
       </Card>

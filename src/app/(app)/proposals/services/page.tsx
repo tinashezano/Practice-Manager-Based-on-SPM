@@ -1,9 +1,11 @@
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { db } from "@/lib/db";
 import { getFirmSettings } from "@/lib/firm";
+import { DeleteButton } from "@/components/delete-button";
 import { formatRand } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { deleteServiceAction } from "../../delete-actions";
 import { EditService, NewService } from "./service-form";
 
 export const metadata = { title: "Services" };
@@ -48,7 +50,14 @@ export default async function ServicesPage() {
                 <td className="px-3 py-3 text-right">{formatRand(s.priceCents)}</td>
                 <td className="px-3 py-3 text-right text-muted">{formatRand(s.priceCents + (s.taxable ? Math.round((s.priceCents * vat) / 100) : 0))}</td>
                 <td className="px-3 py-3 text-xs text-muted">{s.template?.name ?? "Blank project"}</td>
-                <td className="px-5 py-3 text-right">{manage && <EditService service={s} templates={templates} />}</td>
+                <td className="px-5 py-3 text-right">
+                  {manage && (
+                    <span className="inline-flex items-center gap-1">
+                      <EditService service={s} templates={templates} />
+                      <DeleteButton variant="icon" label={`Delete ${s.name}`} action={deleteServiceAction.bind(null, s.id)} confirm={`Delete "${s.name}"? It's removed from any packages. Proposals already made keep their copy. To stop offering it but keep it, edit it and untick Active.`} />
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
             {!services.length && <tr><td colSpan={6} className="py-12 text-center text-muted">No services yet.</td></tr>}

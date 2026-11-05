@@ -9,6 +9,8 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { STATUS_META, TYPE_META, embedUrl } from "@/lib/resource-meta";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteResourceAction } from "../../delete-actions";
 import { AcknowledgeButton, Attachments } from "./view-controls";
 
 export default async function ResourcePage({ params }: { params: Promise<{ id: string }> }) {
@@ -55,6 +57,13 @@ export default async function ResourcePage({ params }: { params: Promise<{ id: s
           <div className="flex gap-2">
             <Link href={`/resources/${r.id}/edit`} className="flex-1"><Button className="w-full"><Pencil size={14} /> Edit</Button></Link>
             <Link href={`/resources/${r.id}/history`}><Button variant="secondary"><History size={14} /> History</Button></Link>
+            <DeleteButton
+              variant="icon"
+              label="Delete this SOP"
+              action={deleteResourceAction.bind(null, r.id)}
+              redirectTo="/resources"
+              confirm={`Delete "${r.title}" with all its versions, read records and attachments? Tasks and job templates linked to it just lose the link. To hide it but keep it, unpublish it (Edit → Draft).`}
+            />
           </div>
         )}
         <Card className="space-y-2 text-sm">

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteDealAction } from "../delete-actions";
 import { Plus, Search } from "lucide-react";
 import type { DealStage, Prisma } from "@prisma/client";
 import { Avatar } from "@/components/avatar";
 import { Badge, Button, Card, PageHeader, inputBase } from "@/components/ui";
-import { DEAL_STAGES, OPEN_STAGES, SOURCE_LABELS, STAGE_META, formatZAR, probabilityOf } from "@/lib/deal-meta";
+import { DEAL_STAGES, OPEN_STAGES, SOURCE_LABELS, STAGE_META, formatZAR, probabilityOf, DEAL_DELETE_MESSAGE } from "@/lib/deal-meta";
 import { formatDate } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/session";
@@ -53,7 +55,8 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
               <th className="px-3 py-3 text-right font-medium">Prob.</th>
               <th className="px-3 py-3 font-medium">Source</th>
               <th className="px-3 py-3 font-medium">Created</th>
-              <th className="px-5 py-3 font-medium">Owner</th>
+              <th className="px-3 py-3 font-medium">Owner</th>
+              <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -68,10 +71,11 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
                 <td className="px-3 py-3 text-right text-muted">{probabilityOf(d)}%</td>
                 <td className="px-3 py-3 text-muted">{SOURCE_LABELS[d.source]}</td>
                 <td className="px-3 py-3 text-muted">{formatDate(d.createdAt.toISOString().slice(0, 10), { day: "numeric", month: "short", year: "numeric" })}</td>
-                <td className="px-5 py-3"><Avatar user={d.owner} /></td>
+                <td className="px-3 py-3"><Avatar user={d.owner} /></td>
+                <td className="px-3 py-3 text-right"><DeleteButton variant="icon" label={`Delete ${d.name}`} action={deleteDealAction.bind(null, d.id)} confirm={DEAL_DELETE_MESSAGE} /></td>
               </tr>
             ))}
-            {deals.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-muted">No deals found.</td></tr>}
+            {deals.length === 0 && <tr><td colSpan={8} className="py-12 text-center text-muted">No deals found.</td></tr>}
           </tbody>
         </table>
       </Card>

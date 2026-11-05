@@ -6,6 +6,8 @@ import { formatDate } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteEnrollmentAction, deleteProgrammeAction } from "../../delete-actions";
 import { createProgramme } from "./actions";
 import { EnrollForm } from "./controls";
 
@@ -53,6 +55,14 @@ export default async function StaffOnboardingPage() {
                 </span>
                 <span className="w-32 text-xs text-muted">from {formatDate(e.startDate, { day: "numeric", month: "short" })}{e.mentor && ` · ${e.mentor.name.split(" ")[0]}`}</span>
                 {e.status === "COMPLETED" ? <Badge tone="success">Completed</Badge> : <Badge tone="brand">In progress</Badge>}
+                {manage && (
+                  <DeleteButton
+                    variant="icon"
+                    label={`Remove ${e.user.name} from ${e.programme.name}`}
+                    action={deleteEnrollmentAction.bind(null, e.id)}
+                    confirm={`Remove ${e.user.name}'s "${e.programme.name}" programme? Their unfinished onboarding tasks are deleted; finished ones stay.`}
+                  />
+                )}
               </Link>
             );
           })}
@@ -74,7 +84,17 @@ export default async function StaffOnboardingPage() {
           const days = Math.max(0, ...p.steps.map((s) => s.dueOffsetDays));
           const card = (
             <Card className="h-full p-4 hover:border-brand">
-              <div className="flex items-center gap-2 font-semibold"><GraduationCap size={16} className="text-brand" /> {p.name} {!p.active && <Badge>Inactive</Badge>}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 font-semibold"><GraduationCap size={16} className="text-brand" /> {p.name} {!p.active && <Badge>Inactive</Badge>}</div>
+                {manage && (
+                  <DeleteButton
+                    variant="icon"
+                    label={`Delete ${p.name}`}
+                    action={deleteProgrammeAction.bind(null, p.id)}
+                    confirm={`Delete the "${p.name}" programme with its steps and finished enrolments? (Programmes someone is still working through can't be deleted.)`}
+                  />
+                )}
+              </div>
               {p.description && <p className="mt-1 text-sm text-muted">{p.description}</p>}
               <div className="mt-2 text-xs text-muted">{p.steps.length} steps · {days} days · {p.steps.filter((s) => s.resourceId).length} SOPs to read · {p._count.enrollments} enrolled</div>
             </Card>

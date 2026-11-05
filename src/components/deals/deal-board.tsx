@@ -7,9 +7,11 @@ import type { DealStage } from "@prisma/client";
 import { CalendarDays, Plus } from "lucide-react";
 import { useOptimistic } from "react";
 import { moveDeal } from "@/app/(app)/deals/actions";
+import { deleteDealAction } from "@/app/(app)/delete-actions";
+import { DeleteButton } from "@/components/delete-button";
 import { Avatar } from "@/components/avatar";
 import { useAction } from "@/components/tasks/use-action";
-import { DEAL_STAGES, STAGE_META, formatZAR } from "@/lib/deal-meta";
+import { DEAL_DELETE_MESSAGE, DEAL_STAGES, STAGE_META, formatZAR } from "@/lib/deal-meta";
 import { formatDate, toISODate, todayISO } from "@/lib/dates";
 
 export type BoardDeal = {
@@ -33,9 +35,15 @@ function Card({ deal }: { deal: BoardDeal }) {
       {...listeners}
       {...attributes}
       style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
-      className={clsx("cursor-grab rounded-lg border border-border bg-surface p-3 shadow-sm", isDragging && "z-10 opacity-80 shadow-lg")}
+      className={clsx("group cursor-grab rounded-lg border border-border bg-surface p-3 shadow-sm", isDragging && "z-10 opacity-80 shadow-lg")}
     >
-      <Link href={`/deals/${deal.id}`} className="block text-sm font-medium hover:text-brand">{deal.name}</Link>
+      <div className="flex items-start justify-between gap-1">
+        <Link href={`/deals/${deal.id}`} className="block min-w-0 text-sm font-medium hover:text-brand">{deal.name}</Link>
+        {/* Keep clicks on the bin from starting a drag. */}
+        <span className="-mr-1.5 -mt-1 opacity-0 transition group-hover:opacity-100" onPointerDown={(e) => e.stopPropagation()}>
+          <DeleteButton variant="icon" label={`Delete ${deal.name}`} action={deleteDealAction.bind(null, deal.id)} confirm={DEAL_DELETE_MESSAGE} />
+        </span>
+      </div>
       <div className="truncate text-xs text-muted">{deal.contactName}</div>
       <div className="mt-2 flex items-center justify-between">
         <span className="text-sm font-semibold">{deal.valueCents ? formatZAR(deal.valueCents) : <span className="text-xs font-normal text-muted">No value yet</span>}</span>

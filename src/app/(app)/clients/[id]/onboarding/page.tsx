@@ -8,6 +8,8 @@ import { db } from "@/lib/db";
 import { onboardingInclude, progress, uploadUrl } from "@/lib/onboarding";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteOnboardingAction } from "../../../delete-actions";
 import { formatBytes } from "@/lib/storage";
 import { AddItem, InfoItemControls, LinkTools, PersonSelect, ReviewPanel, SetupCheck, StageBar, StartOnboardingButton } from "./controls";
 
@@ -71,6 +73,16 @@ export default async function ClientOnboardingPage({ params }: { params: Promise
           <span className="text-muted">Started {formatDateTime(o.createdAt)}</span>
           {o.remindersSent > 0 && <span className="text-muted">{o.remindersSent} reminder{o.remindersSent === 1 ? "" : "s"} sent</span>}
           {o.completedAt && <Badge tone="success">Completed {formatDateTime(o.completedAt)}</Badge>}
+          {manage && (
+            <span className="ml-auto">
+              <DeleteButton
+                label="Delete onboarding"
+                action={deleteOnboardingAction.bind(null, o.id)}
+                redirectTo={`/clients/${id}`}
+                confirm="Delete this onboarding? Its checklist, activity and the documents the client uploaded are removed, and the upload link stops working. The client stays, and you can start a new onboarding."
+              />
+            </span>
+          )}
         </div>
         {o.stage !== "COMPLETE" && (
           <div className="rounded-lg bg-background p-3">
