@@ -13,7 +13,7 @@ import type { Load } from "@/lib/capacity";
 import { addLeave, deleteLeave } from "./actions";
 
 export type CellTask = { id: string; title: string; where: string; hours: number; due: string | null };
-export type Cell = { week: string; planned: number; available: number; load: Load; tasks: CellTask[]; leaveDays: number };
+export type Cell = { week: string; planned: number; available: number; load: Load; tasks: CellTask[]; moreTasks: number; leaveDays: number };
 export type Row = { user: { id: string; name: string }; weekly: number; cells: Cell[]; unscheduled: number; noEstimate: number };
 
 const LOAD_STYLE: Record<Load, string> = {
@@ -97,6 +97,7 @@ export function Planner({ rows, weeks, staff, canReassign }: { rows: Row[]; week
                 )}
               </div>
             ))}
+            {selected.moreTasks > 0 && <p className="px-4 py-2.5 text-xs text-muted">+ {selected.moreTasks} smaller task{selected.moreTasks === 1 ? "" : "s"} this week (see the person&apos;s tasks for all of them).</p>}
             {!selected.tasks.length && <p className="px-4 py-6 text-center text-sm text-muted">No estimated work planned this week.</p>}
           </div>
         </div>

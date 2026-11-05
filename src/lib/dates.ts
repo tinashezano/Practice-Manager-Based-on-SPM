@@ -2,9 +2,19 @@
 // "Today" is evaluated in the firm's timezone.
 export const FIRM_TZ = "Africa/Johannesburg";
 
+// Creating an Intl.DateTimeFormat is ~100× slower than using one, and dates are
+// formatted on nearly every row, so formatters are created once and reused.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+export function dateFormatter(locale: string, opts: Intl.DateTimeFormatOptions) {
+  const key = `${locale}|${JSON.stringify(opts)}`;
+  let f = formatters.get(key);
+  if (!f) formatters.set(key, (f = new Intl.DateTimeFormat(locale, opts)));
+  return f;
+}
+
 /** Today's date in the firm's timezone as YYYY-MM-DD. */
 export function todayISO(now = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: FIRM_TZ }).format(now);
+  return dateFormatter("en-CA", { timeZone: FIRM_TZ }).format(now);
 }
 
 export function toISODate(d: Date | null | undefined) {
@@ -36,11 +46,11 @@ export function startOfWeek(iso: string) {
 export function formatDate(d: Date | string | null | undefined, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) {
   if (!d) return "";
   const date = typeof d === "string" ? parseISODate(d) : d;
-  return date ? new Intl.DateTimeFormat("en-ZA", { timeZone: "UTC", ...opts }).format(date) : "";
+  return date ? dateFormatter("en-ZA", { timeZone: "UTC", ...opts }).format(date) : "";
 }
 
 export function formatDateTime(d: Date) {
-  return new Intl.DateTimeFormat("en-ZA", { timeZone: FIRM_TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(d);
+  return dateFormatter("en-ZA", { timeZone: FIRM_TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
 /** The 6-week (Mon–Sun) grid shown for a calendar month "YYYY-MM". */

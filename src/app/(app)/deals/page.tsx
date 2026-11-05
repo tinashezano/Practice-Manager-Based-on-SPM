@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeleteButton } from "@/components/delete-button";
+import { ListMore, pageLimit } from "@/components/list-more";
 import { deleteDealAction } from "../delete-actions";
 import { Plus, Search } from "lucide-react";
 import type { DealStage, Prisma } from "@prisma/client";
@@ -12,17 +13,19 @@ import { requirePermission } from "@/lib/session";
 
 export const metadata = { title: "Deals" };
 
-export default async function DealsPage({ searchParams }: { searchParams: Promise<{ q?: string; stage?: string; owner?: string }> }) {
+export default async function DealsPage({ searchParams }: { searchParams: Promise<{ q?: string; stage?: string; owner?: string; limit?: string }> }) {
   await requirePermission("deals.manage");
-  const { q, stage, owner } = await searchParams;
+  const { q, stage, owner, limit: limitParam } = await searchParams;
+  const limit = pageLimit(limitParam);
   const where: Prisma.DealWhereInput = {};
   if (q) where.OR = [{ name: { contains: q, mode: "insensitive" } }, { contactName: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }];
   if (stage === "open" || !stage) where.stage = { in: OPEN_STAGES };
   else if (stage !== "all" && DEAL_STAGES.includes(stage as DealStage)) where.stage = stage as DealStage;
   if (owner) where.ownerId = owner;
 
-  const [deals, staff] = await Promise.all([
-    db.deal.findMany({ where, include: { owner: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" }, take: 500 }),
+  const [deals, total, staff] = await Promise.all([
+    db.deal.findMany({ where, include: { owner: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" }, take: limit }),
+    db.deal.count({ where }),
     db.user.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
@@ -79,6 +82,7 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
           </tbody>
         </table>
       </Card>
+      <ListMore shown={deals.length} total={total} limit={limit} path="/deals" params={{ q, stage, owner }} noun="deals" />
     </>
   );
 }

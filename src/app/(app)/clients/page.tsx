@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ListMore, pageLimit } from "@/components/list-more";
 import { Plus, Search } from "lucide-react";
 import type { ClientStatus, Prisma } from "@prisma/client";
 import { Avatar } from "@/components/avatar";
@@ -11,24 +12,27 @@ import { CLIENT_STATUS_META, ENTITY_LABELS } from "@/lib/task-meta";
 
 export const metadata = { title: "Clients" };
 
-export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; limit?: string }> }) {
   const user = await requirePermission("clients.view");
-  const { q, status } = await searchParams;
+  const { q, status, limit: limitParam } = await searchParams;
+  const limit = pageLimit(limitParam);
   const where: Prisma.ClientWhereInput = {};
   if (q) where.name = { contains: q, mode: "insensitive" };
   if (status && status in CLIENT_STATUS_META) where.status = status as ClientStatus;
   else if (!status) where.status = { not: "INACTIVE" };
 
   const today = parseISODate(todayISO())!;
-  const clients = await db.client.findMany({
-    where,
-    orderBy: [{ isInternal: "desc" }, { name: "asc" }],
-    include: {
-      owner: { select: { id: true, name: true } },
-      _count: { select: { projects: { where: { status: "ACTIVE" } } } },
-    },
-  });
-  const [open, overdue] = await Promise.all([
+  const [clients, total, open, overdue] = await Promise.all([
+    db.client.findMany({
+      where,
+      orderBy: [{ isInternal: "desc" }, { name: "asc" }],
+      include: {
+        owner: { select: { id: true, name: true } },
+        _count: { select: { projects: { where: { status: "ACTIVE" } } } },
+      },
+      take: limit,
+    }),
+    db.client.count({ where }),
     db.task.groupBy({ by: ["clientId"], where: { parentId: null, status: { not: "DONE" } }, _count: true }),
     db.task.groupBy({ by: ["clientId"], where: { parentId: null, status: { not: "DONE" }, dueDate: { lt: today } }, _count: true }),
   ]);
@@ -87,6 +91,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           </tbody>
         </table>
       </Card>
+      <ListMore shown={clients.length} total={total} limit={limit} path="/clients" params={{ q, status }} noun="clients" />
     </>
   );
 }

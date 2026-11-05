@@ -5,8 +5,10 @@ import { useActionState, useState } from "react";
 import { Button, inputClass } from "@/components/ui";
 import type { BookState } from "@/app/book/actions";
 
-const fmtDay = (d: string) => new Intl.DateTimeFormat("en-ZA", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" }).format(new Date(`${d}T00:00:00Z`));
-const fmtTime = (iso: string) => new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+const DAY = new Intl.DateTimeFormat("en-ZA", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+const TIME = new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", hour: "2-digit", minute: "2-digit", hour12: false });
+const fmtDay = (d: string) => DAY.format(new Date(`${d}T00:00:00Z`));
+const fmtTime = (iso: string) => TIME.format(new Date(iso));
 
 /**
  * Pick a day, then a time. In "book" mode it then asks for contact details;

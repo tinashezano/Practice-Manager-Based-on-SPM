@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   experimental: {
     // Client document uploads go through server actions (15 MB per file, several at once).
     serverActions: { bodySizeLimit: "50mb" },

@@ -34,24 +34,41 @@ export function taskWhere(f: TaskFilters): Prisma.TaskWhereInput {
 
 const userSelect = { select: { id: true, name: true } } as const;
 
-export const taskListInclude = {
+// Only what the list, board, calendar and timeline show; descriptions and
+// other long fields load with the task panel.
+const rowFields = {
+  id: true,
+  title: true,
+  status: true,
+  priority: true,
+  dueDate: true,
+  startDate: true,
+  position: true,
+  clientId: true,
+  dealId: true,
+  projectId: true,
+  assigneeId: true,
+} as const;
+
+export const taskListSelect = {
+  ...rowFields,
   client: { select: { id: true, name: true, isInternal: true } },
   deal: { select: { id: true, name: true } },
   project: { select: { id: true, name: true } },
   assignee: userSelect,
   subtasks: {
     orderBy: { position: "asc" },
-    include: { assignee: userSelect },
+    select: { ...rowFields, assignee: userSelect },
   },
   _count: { select: { comments: true, attachments: true } },
-} satisfies Prisma.TaskInclude;
+} satisfies Prisma.TaskSelect;
 
-export type TaskRow = Prisma.TaskGetPayload<{ include: typeof taskListInclude }>;
+export type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskListSelect }>;
 
 export async function listTasks(f: TaskFilters, take = 1000) {
   return db.task.findMany({
     where: taskWhere(f),
-    include: taskListInclude,
+    select: taskListSelect,
     orderBy: [{ client: { name: "asc" } }, { deal: { name: "asc" } }, { position: "asc" }],
     take,
   });

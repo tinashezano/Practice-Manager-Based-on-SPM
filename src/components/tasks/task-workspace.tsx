@@ -3,9 +3,10 @@ import { addDays, monthGridRange, startOfWeek, TIMELINE_DAYS, todayISO } from "@
 import { can } from "@/lib/permissions";
 import type { requireUser } from "@/lib/session";
 import { canEditTask } from "@/lib/task-access";
-import { getTaskDetail, listTasks, taskListInclude, taskWhere, type TaskFilters } from "@/lib/task-queries";
+import { getTaskDetail, listTasks, taskListSelect, taskWhere, type TaskFilters } from "@/lib/task-queries";
 import { runningTimer } from "@/lib/time";
 import { NewTaskButton } from "./new-task-button";
+import { ShowMore } from "./show-more";
 import { TaskBoard } from "./task-board";
 import { TaskCalendar } from "./task-calendar";
 import { TaskList } from "./task-list";
@@ -49,12 +50,27 @@ export async function TaskWorkspace({
   };
   const today = todayISO();
 
-  const [staff, clients, projects, resources] = await Promise.all([
+  // Started now, awaited after the tasks, so both run at the same time.
+  const lookups = Promise.all([
     db.user.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.client.findMany({ where: { status: { not: "INACTIVE" } }, select: { id: true, name: true }, orderBy: [{ isInternal: "desc" }, { name: "asc" }] }),
     db.project.findMany({ where: { status: { not: "COMPLETED" } }, select: { id: true, name: true, clientId: true }, orderBy: { name: "asc" } }),
     db.resource.findMany({ where: { status: "PUBLISHED" }, select: { id: true, title: true }, orderBy: { title: "asc" } }),
   ]);
+
+  // Long lists are slow to send and render, so views show the first `limit`
+  // tasks with "Show more" (the board and list), or a cap (calendar, timeline).
+  const limitParam = Number(str(searchParams.limit));
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(1000, Math.floor(limitParam)) : 200;
+
+  const taskId = str(searchParams.task);
+  const panelData = taskId
+    ? Promise.all([getTaskDetail(taskId), runningTimer(user.id), db.timeEntry.aggregate({ where: { taskId, running: false }, _sum: { minutes: true } }), canEditTask(user, taskId)])
+    : null;
+  // Both are awaited below; this only stops an early error elsewhere leaving
+  // them as unhandled rejections (which would crash the Node process).
+  lookups.catch(() => {});
+  panelData?.catch(() => {});
 
   let body: React.ReactNode;
   if (view === "calendar") {
@@ -62,30 +78,40 @@ export async function TaskWorkspace({
     const month = monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : today.slice(0, 7);
     const { start, end } = monthGridRange(month);
     const [tasks, unscheduled] = await Promise.all([
-      listTasks({ ...filters, from: start, to: end }),
-      db.task.findMany({ where: { ...taskWhere({ ...filters, status: "open" }), dueDate: null }, include: taskListInclude, take: 100 }),
+      listTasks({ ...filters, from: start, to: end }, 600),
+      db.task.findMany({ where: { ...taskWhere({ ...filters, status: "open" }), dueDate: null }, select: taskListSelect, take: 100 }),
     ]);
     body = <TaskCalendar tasks={tasks.filter((t) => t.dueDate)} unscheduled={unscheduled} month={month} />;
   } else if (view === "timeline") {
     const fromParam = str(searchParams.from);
     const from = fromParam && /^\d{4}-\d{2}-\d{2}$/.test(fromParam) ? fromParam : addDays(startOfWeek(today), -7);
-    const [tasks, undated] = await Promise.all([
-      listTasks({ ...filters, from, to: addDays(from, TIMELINE_DAYS - 1) }),
+    const range = { ...filters, from, to: addDays(from, TIMELINE_DAYS - 1) };
+    const [tasks, total, undated] = await Promise.all([
+      listTasks(range, limit),
+      db.task.count({ where: taskWhere(range) }),
       db.task.count({ where: { ...taskWhere(filters), startDate: null, dueDate: null } }),
     ]);
-    body = <TaskTimeline tasks={tasks} from={from} undated={undated} />;
+    body = (
+      <>
+        <TaskTimeline tasks={tasks} from={from} undated={undated} />
+        <ShowMore shown={tasks.length} total={total} limit={limit} />
+      </>
+    );
   } else {
-    const tasks = await listTasks(filters);
-    body = view === "board" ? <TaskBoard tasks={tasks} showDone={status !== "open"} /> : <TaskList tasks={tasks} showClients={!clientId && !dealId} emptyText={dealId ? "No tasks for this lead yet." : undefined} />;
+    const [tasks, total] = await Promise.all([listTasks(filters, limit), db.task.count({ where: taskWhere(filters) })]);
+    body = (
+      <>
+        {view === "board" ? <TaskBoard tasks={tasks} showDone={status !== "open"} /> : <TaskList tasks={tasks} showClients={!clientId && !dealId} emptyText={dealId ? "No tasks for this lead yet." : undefined} />}
+        <ShowMore shown={tasks.length} total={total} limit={limit} />
+      </>
+    );
   }
 
-  const taskId = str(searchParams.task);
-  const detail = taskId ? await getTaskDetail(taskId) : null;
+  const [staff, clients, projects, resources] = await lookups;
   let panel: React.ReactNode = null;
+  const [detail, running, logged, canEdit] = (await panelData) ?? [null, null, null, false];
   if (detail) {
     const manager = can(user.role, "tasks.manageAll");
-    const running = await runningTimer(user.id);
-    const loggedMinutes = (await db.timeEntry.aggregate({ where: { taskId: detail.id, running: false }, _sum: { minutes: true } }))._sum.minutes ?? 0;
     const canDelete = manager || detail.createdById === user.id || (!!detail.parent && (await canEditTask(user, detail.parent.id)));
     panel = (
       <TaskPanel
@@ -94,8 +120,8 @@ export async function TaskWorkspace({
         projects={projects.filter((p) => p.clientId === detail.clientId)}
         resources={resources.map((r) => ({ id: r.id, name: r.title }))}
         running={running?.startedAt ? { startedAt: running.startedAt.toISOString(), taskId: running.taskId, label: running.task?.title ?? "General time" } : null}
-        loggedMinutes={loggedMinutes}
-        canEdit={await canEditTask(user, detail.id)}
+        loggedMinutes={logged?._sum.minutes ?? 0}
+        canEdit={canEdit}
         canDelete={canDelete}
       />
     );

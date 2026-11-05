@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ProjectStatus } from "@prisma/client";
+import type { Prisma, ProjectStatus } from "@prisma/client";
 import { Avatar } from "@/components/avatar";
 import { Badge, Button, Card, PageHeader, inputBase } from "@/components/ui";
 import { formatDate, parseISODate, todayISO } from "@/lib/dates";
@@ -7,23 +7,33 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requirePermission } from "@/lib/session";
 import { DeleteButton } from "@/components/delete-button";
+import { ListMore, pageLimit } from "@/components/list-more";
 import { deleteProjectAction } from "../delete-actions";
 import { PROJECT_STATUS_META } from "@/lib/task-meta";
 
 export const metadata = { title: "Projects" };
 
-export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; limit?: string }> }) {
   const user = await requirePermission("tasks.work");
   const canDelete = can(user.role, "tasks.manageAll");
-  const { status } = await searchParams;
+  const { status, q, limit: limitParam } = await searchParams;
+  const limit = pageLimit(limitParam);
   const statusFilter = status && status in PROJECT_STATUS_META ? (status as ProjectStatus) : status === "all" ? undefined : "ACTIVE";
   const today = parseISODate(todayISO())!;
 
-  const projects = await db.project.findMany({
-    where: statusFilter ? { status: statusFilter } : {},
-    include: { client: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } },
-    orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
-  });
+  const where: Prisma.ProjectWhereInput = {
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { client: { name: { contains: q, mode: "insensitive" } } }] } : {}),
+  };
+  const [projects, total] = await Promise.all([
+    db.project.findMany({
+      where,
+      include: { client: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } },
+      orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
+      take: limit,
+    }),
+    db.project.count({ where }),
+  ]);
   const ids = projects.map((p) => p.id);
   const [byStatus, overdue] = await Promise.all([
     db.task.groupBy({ by: ["projectId", "status"], where: { projectId: { in: ids }, parentId: null }, _count: true }),
@@ -35,6 +45,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     <>
       <PageHeader title="Projects" subtitle="Engagements across all clients. Create projects from a client's page." />
       <form className="mb-4 flex gap-2">
+        <input name="q" defaultValue={q} placeholder="Search project or client" className={`${inputBase} w-64 py-1.5`} aria-label="Search projects" />
         <select name="status" defaultValue={status ?? "ACTIVE"} className={`${inputBase} py-1.5`}>
           {Object.entries(PROJECT_STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
           <option value="all">All</option>
@@ -85,6 +96,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
           </tbody>
         </table>
       </Card>
+      <ListMore shown={projects.length} total={total} limit={limit} path="/projects" params={{ status, q }} noun="projects" />
     </>
   );
 }
